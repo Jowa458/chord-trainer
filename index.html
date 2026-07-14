@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1220">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>和弦聽力訓練 · 實戰配置</title>
+<script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.3/build/cjs/vexflow.js"></script>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  :root {
+    --bg:#0f1220; --card:#1a1f36; --line:#2a3152; --text:#e8ecf8; --muted:#8b94b8;
+    --accent:#6c7bff; --ok:#3ecf8e; --bad:#ff6b6b; --lh:#ff9f5a; --rh:#5ac8ff;
+  }
+  body {
+    font-family:-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    background:var(--bg); color:var(--text); min-height:100vh; padding:16px;
+    touch-action:manipulation; display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  h1 { font-size:20px; font-weight:700; }
+  .sub { color:var(--muted); font-size:13px; text-align:center; line-height:1.5; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; width:100%; max-width:620px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  .score { display:flex; gap:20px; justify-content:center; font-size:14px; color:var(--muted); }
+  .score b { color:var(--text); font-size:18px; }
+  label.small { color:var(--muted); font-size:12px; display:block; text-align:center; margin-bottom:8px; }
+
+  #staff { background:#fff; border-radius:12px; padding:6px; overflow-x:auto; text-align:center; min-height:150px; }
+
+  button {
+    font-family:inherit; font-size:15px; font-weight:600; color:var(--text);
+    background:#262c4a; border:1px solid var(--line); border-radius:12px; padding:12px 16px;
+    cursor:pointer; transition:transform .05s, background .15s;
+  }
+  button:active { transform:scale(.96); }
+  button.primary { background:var(--accent); border-color:var(--accent); }
+  button.wide { flex:1; min-width:130px; }
+  .seg { display:flex; gap:8px; flex-wrap:wrap; }
+  .seg button { flex:1; min-width:96px; padding:10px; font-size:14px; }
+  .seg button.sel { background:var(--accent); border-color:var(--accent); }
+  .chips { display:flex; flex-wrap:wrap; gap:7px; justify-content:center; }
+  .chip { font-size:12px; padding:7px 10px; border-radius:18px; background:#262c4a; border:1px solid var(--line); cursor:pointer; }
+  .chip.sel { background:var(--accent); border-color:var(--accent); }
+  .chip.na, .answers button.na { opacity:.32; text-decoration:line-through; }
+  .grphead { font-size:13px; font-weight:600; color:var(--text); background:#20263f; border:1px solid var(--line); border-radius:10px; padding:9px 12px; margin:8px 0 6px; cursor:pointer; user-select:none; }
+  .grpbody { display:grid; grid-template-columns:repeat(auto-fill,minmax(74px,1fr)); gap:6px; margin-bottom:6px; }
+  .grpbody .chip { text-align:center; padding:8px 4px; font-size:12px; }
+  input[type=range] { accent-color:var(--accent); height:30px; }
+  .answers { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; max-height:280px; overflow-y:auto; }
+  .answers button { font-size:13px; padding:11px 6px; }
+  .answers button.correct { background:var(--ok); border-color:var(--ok); color:#04180f; }
+  .answers button.wrong { background:var(--bad); border-color:var(--bad); }
+  .feedback { text-align:center; min-height:24px; font-size:15px; font-weight:600; }
+  .legend { display:flex; gap:12px 16px; flex-wrap:wrap; justify-content:center; font-size:12px; color:var(--text); margin-top:10px; }
+  .dot { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:middle; margin-right:4px; }
+</style>
+</head>
+<body>
+  <h1>🎹 和弦聽力訓練 · 實戰配置</h1>
+  <div class="sub">含根音的實戰排列（標準原位 / 轉位 / Drop 2·3·2+4 / Shell / 雙手），可個別勾選，五線譜顯示，套用低音混濁、指距、聲部斷層等物理限制。</div>
+
+  <div class="card" style="padding:10px">
+    <div class="seg" id="apptab">
+      <button data-a="quiz" class="sel">🎧 測驗</button>
+      <button data-a="practice">🎹 練習聆聽</button>
+    </div>
+    <div style="height:8px"></div>
+    <div class="seg" id="instrument">
+      <button data-i="piano" class="sel">🎹 鋼琴</button>
+      <button data-i="guitar">🎸 吉他</button>
+    </div>
+  </div>
+
+  <div class="card" id="scoreCard">
+    <div class="score">
+      <div>答對 <b id="right">0</b></div>
+      <div>總題 <b id="total">0</b></div>
+      <div>連續 <b id="streak">0</b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="grphead" id="advHead">▸ 排列方式（進階，可不理）</div>
+    <div id="pianoOpts" style="display:none">
+    <label class="small">排列方式（可多選；至少 1 種。練習時只勾 1 種即可單獨練）</label>
+    <div class="chips" id="voicingSet"></div>
+    <div style="height:12px"></div>
+    <label class="small">轉位（根音不在低音）</label>
+    <div class="chips" id="invSet"></div>
+    </div>
+    <label class="small">播放方式</label>
+    <div class="seg" id="playmode">
+      <button data-p="both" class="sel">琶音+柱狀</button>
+      <button data-p="arp">琶音</button>
+      <button data-p="block">柱狀</button>
+    </div>
+    <div style="height:12px"></div>
+    <label class="small">要練習的和弦（測驗用；點標題可收合，點和弦開/關，至少 2 種）</label>
+    <div id="chipSet"></div>
+    <div id="rootWrap" style="display:none">
+      <div style="height:12px"></div>
+      <label class="small">練習根音</label>
+      <div class="chips" id="rootRow"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="staff"></div>
+    <div id="fretbox" style="display:none; text-align:center; margin-top:6px"></div>
+    <div class="legend" id="degLegend"></div>
+  </div>
+
+  <div class="card">
+    <label class="small">音量</label>
+    <input id="vol" type="range" min="0" max="200" value="100" style="width:100%; margin-bottom:10px">
+    <label class="small">殘響（空間感）</label>
+    <input id="rev" type="range" min="0" max="100" value="32" style="width:100%; margin-bottom:14px">
+    <div class="row" id="quizRow">
+      <button class="primary wide" id="newBtn">▶ 新題目</button>
+      <button class="wide" id="replayBtn">🔁 重播</button>
+    </div>
+    <div style="height:12px"></div>
+    <div class="answers" id="answers"></div>
+    <div style="height:12px"></div>
+    <div class="feedback" id="feedback">選好和弦，按「新題目」開始</div>
+  </div>
+
+  <div class="sub" style="max-width:620px">
+    鋼琴用真鋼琴取樣、吉他用線上木吉他音色；五線譜需連網載入。<b>版本 v29</b>
+  </div>
+
+<script>
+/* ================= 音源：真鋼琴取樣（aac/*.m4a） ================= */
+let ctx, master, reverb, reverbGain, comp;
+let userVolume=1.0;                  // 由音量滑桿控制
+let userReverb=0.16;                 // 由殘響滑桿控制 (0~0.5)
+const buffers={};                    // midi -> AudioBuffer (鋼琴)
+const gbuffers={};                   // midi -> AudioBuffer (吉他，放 guitar/ 資料夾)
+let samplesReady=false, loadingSamples=false;
+let guitarPromise=null;              // 線上吉他音色載入(共用 promise)
+const SAMPLE_LO=29, SAMPLE_HI=96;    // 和弦生成範圍 F1~C7
+const NOTE_NAMES=['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B']; // 檔名用 s 代替 # (避免主機對 # 出錯)
+const sampleFile = m => NOTE_NAMES[((m%12)+12)%12] + (Math.floor(m/12)-1) + '.m4a';
+function makeReverb(){
+  const conv=ctx.createConvolver(), len=Math.floor(ctx.sampleRate*1.6);
+  const buf=ctx.createBuffer(2,len,ctx.sampleRate);
+  for(let ch=0;ch<2;ch++){ const d=buf.getChannelData(ch);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.8); }
+  conv.buffer=buf; return conv;
+}
+function initAudio(){
+  if(ctx) return;
+  ctx=new (window.AudioContext||window.webkitAudioContext)();
+  comp=ctx.createDynamicsCompressor();          // 末端限幅：可大幅放大又不破音
+  comp.threshold.value=-2; comp.knee.value=0; comp.ratio.value=20; comp.attack.value=0.002; comp.release.value=0.12;
+  comp.connect(ctx.destination);
+  const makeup=ctx.createGain(); makeup.gain.value=2.8; makeup.connect(comp);   // 增益放大
+  master=ctx.createGain(); master.gain.value=userVolume; master.connect(makeup);
+  reverb=makeReverb(); reverbGain=ctx.createGain(); reverbGain.gain.value=userReverb;
+  master.connect(reverb); reverb.connect(reverbGain); reverbGain.connect(makeup);
+}
+function loadSamples(onProgress){
+  initAudio();
+  const list=[]; for(let m=SAMPLE_LO;m<=SAMPLE_HI;m++) list.push(m);
+  let done=0;
+  return Promise.all(list.map(m=>
+    fetch('aac/'+sampleFile(m))
+      .then(r=>{ if(!r.ok) throw 0; return r.arrayBuffer(); })
+      .then(a=>new Promise((res,rej)=>ctx.decodeAudioData(a,res,rej)))
+      .then(b=>{ buffers[m]=b; })
+      .catch(e=>console.warn('取樣載入失敗',m,sampleFile(m)))
+      .then(()=>{ done++; if(onProgress) onProgress(done,list.length); })
+  )).then(()=>{ samplesReady=true; return Object.keys(buffers).length; });
+}
+// 本機吉他取樣（guitar/ 資料夾，E2~C6，命名同鋼琴慣例；讀不到的音自動退回鋼琴音色）
+const gFile=m=>NOTE_NAMES[((m%12)+12)%12]+(Math.floor(m/12)-1)+'.m4a';
+function loadGuitar(){
+  if(guitarPromise) return guitarPromise; initAudio();
+  const list=[]; for(let m=40;m<=84;m++) list.push(m);   // E2 ~ C6
+  guitarPromise=Promise.all(list.map(m=>
+    fetch('guitar/'+gFile(m))
+      .then(r=>{ if(!r.ok) throw 0; return r.arrayBuffer(); })
+      .then(a=>new Promise((res,rej)=>ctx.decodeAudioData(a,res,rej)))
+      .then(b=>{ gbuffers[m]=b; }).catch(()=>{})
+  )).then(()=>Object.keys(gbuffers).length);
+  return guitarPromise;
+}
+function nearestG(midi){             // 找最接近的已載入吉他取樣
+  let best=null,bd=1e9;
+  for(const k in gbuffers){ const d=Math.abs(+k-midi); if(d<bd){bd=d;best=+k;} }
+  return best;
+}
+function playNote(midi, when, dur){
+  let buf=buffers[midi], rate=1;
+  if(instrument==='guitar'){
+    const gm=nearestG(midi);
+    if(gm!=null){ buf=gbuffers[gm]; rate=Math.pow(2,(midi-gm)/12); }  // 微幅變調補齊
+  }
+  if(!buf) return;
+  const t=ctx.currentTime+when;
+  const src=ctx.createBufferSource(); src.buffer=buf; src.playbackRate.value=rate;
+  const g=ctx.createGain();
+  g.gain.setValueAtTime(0.85,t);
+  g.gain.setValueAtTime(0.85, t+Math.max(0.05,dur-0.5));
+  g.gain.linearRampToValueAtTime(0.0001, t+dur);      // 尾端淡出
+  src.connect(g); g.connect(master);
+  src.start(t); src.stop(t+dur+0.15);
+}
+function playChord(midis, style){
+  if(ctx&&ctx.state==='suspended') ctx.resume();
+  const s=[...midis].sort((a,b)=>a-b);
+  if(instrument==='guitar'){                     // 吉他：由低到高「快速撥弦」
+    const strum=0.03;                            // 每弦間隔(快速刷過)
+    if(style==='block'){ s.forEach((m,i)=>playNote(m,i*0.012,3.2)); }         // 幾乎同時刷
+    else if(style==='arp'){ s.forEach((m,i)=>playNote(m,i*strum,3.2)); }      // 快速撥弦
+    else { s.forEach((m,i)=>playNote(m,i*strum,2.2));                          // 刷兩次
+           const t0=s.length*strum+0.9; s.forEach((m,i)=>playNote(m,t0+i*strum,3.2)); }
+    return;
+  }
+  // 鋼琴
+  if(style==='arp'){ s.forEach((m,i)=>playNote(m,i*0.28,2.8)); }
+  else if(style==='block'){ s.forEach((m,i)=>playNote(m,i*0.008,3.0)); }
+  else { s.forEach((m,i)=>playNote(m,i*0.2,1.6)); const t0=s.length*0.2+0.25; s.forEach(m=>playNote(m,t0,3.0)); }
+}
+/* 答對歡樂音效：明亮鈴聲上行 */
+function bell(freq, t, dur, gainv){
+  const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=freq;
+  const o2=ctx.createOscillator(); o2.type='sine'; o2.frequency.value=freq*2.01;
+  const g=ctx.createGain();
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(gainv,t+0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  const g2=ctx.createGain(); g2.gain.value=0.35; o2.connect(g2); g2.connect(g);
+  o.connect(g); g.connect(master);
+  o.start(t); o2.start(t); o.stop(t+dur+0.05); o2.stop(t+dur+0.05);
+}
+function playSuccess(){
+  if(!ctx) return;
+  const now=ctx.currentTime, mf=m=>440*Math.pow(2,(m-69)/12);
+  [72,76,79,84].forEach((m,i)=> bell(mf(m), now+i*0.075, 0.55, 0.22)); // C-E-G-C 上行
+  bell(mf(88), now+0.30, 0.9, 0.18);                                    // 高音收尾閃亮
+}
+
+/* ================= 樂理定義 ================= */
+const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const LETTER_NAMES=['C','D','E','F','G','A','B'];
+const LETTER_PC=[0,2,4,5,7,9,11];
+const pc = m => ((m%12)+12)%12;
+const randInt = n => Math.floor(Math.random()*n);
+// 12 個根音的譜面拼法 [字母index, 升降]
+const ROOT_SPELL=[
+  {letter:0,acc:0},{letter:1,acc:-1},{letter:1,acc:0},{letter:2,acc:-1},
+  {letter:2,acc:0},{letter:3,acc:0},{letter:3,acc:1},{letter:4,acc:0},
+  {letter:5,acc:-1},{letter:5,acc:0},{letter:6,acc:-1},{letter:6,acc:0}
+];
+// tones: [半音, 音級偏移(0=根,1=2,2=3,3=4,4=5,5=6,6=7)]
+const QUALITIES=[
+  // 三和弦
+  {key:'maj',      grp:'三', label:'大三 maj',   tones:[[0,0],[4,2],[7,4]]},
+  {key:'min',      grp:'三', label:'小三 min',   tones:[[0,0],[3,2],[7,4]]},
+  {key:'dim',      grp:'三', label:'減三 dim',   tones:[[0,0],[3,2],[6,4]]},
+  {key:'aug',      grp:'三', label:'增三 aug',   tones:[[0,0],[4,2],[8,4]]},
+  // 七和弦（基本）
+  {key:'Maj7',     grp:'七', label:'大七 Maj7',  tones:[[0,0],[4,2],[7,4],[11,6]]},
+  {key:'7',        grp:'七', label:'屬七 7',     tones:[[0,0],[4,2],[7,4],[10,6]]},
+  {key:'mi7',      grp:'七', label:'小七 mi7',   tones:[[0,0],[3,2],[7,4],[10,6]]},
+  {key:'mi7b5',    grp:'七', label:'半減 mi7♭5', tones:[[0,0],[3,2],[6,4],[10,6]]},
+  {key:'dim7',     grp:'七', label:'減七 dim7',  tones:[[0,0],[3,2],[6,4],[9,6]]},
+  {key:'miMaj7',   grp:'七', label:'小大七 miM7',tones:[[0,0],[3,2],[7,4],[11,6]]},
+  {key:'dimMaj7',  grp:'七', label:'dim(maj7)',  tones:[[0,0],[3,2],[6,4],[11,6]]},
+  // 六和弦
+  {key:'Add6',     grp:'六', label:'大六 6',     tones:[[0,0],[4,2],[7,4],[9,5]]},
+  {key:'mi6',      grp:'六', label:'小六 mi6',   tones:[[0,0],[3,2],[7,4],[9,5]]},
+  // 掛留和弦
+  {key:'sus2',     grp:'掛', label:'sus2',       tones:[[0,0],[2,1],[7,4]]},
+  {key:'sus4',     grp:'掛', label:'sus4',       tones:[[0,0],[5,3],[7,4]]},
+  {key:'7sus4',    grp:'掛', label:'7sus4',      tones:[[0,0],[5,3],[7,4],[10,6]]},
+  {key:'7sus2',    grp:'掛', label:'7sus2',      tones:[[0,0],[2,1],[7,4],[10,6]]},
+  {key:'maj7sus4', grp:'掛', label:'maj7sus4',   tones:[[0,0],[5,3],[7,4],[11,6]]},
+  {key:'maj7sus2', grp:'掛', label:'maj7sus2',   tones:[[0,0],[2,1],[7,4],[11,6]]},
+  // 變化和弦（升降五度）
+  {key:'7b5',      grp:'變', label:'7(♭5)',      tones:[[0,0],[4,2],[6,4],[10,6]]},
+  {key:'7#5',      grp:'變', label:'7(♯5)',      tones:[[0,0],[4,2],[8,4],[10,6]]},
+  {key:'maj7b5',   grp:'變', label:'maj7(♭5)',   tones:[[0,0],[4,2],[6,4],[11,6]]},
+  {key:'maj7#5',   grp:'變', label:'maj7(♯5)',   tones:[[0,0],[4,2],[8,4],[11,6]]},
+  // 九和弦
+  {key:'9',        grp:'九', label:'屬九 9',     tones:[[0,0],[4,2],[7,4],[10,6],[14,1]]},
+  {key:'maj9',     grp:'九', label:'大九 Maj9',  tones:[[0,0],[4,2],[7,4],[11,6],[14,1]]},
+  {key:'m9',       grp:'九', label:'小九 m9',    tones:[[0,0],[3,2],[7,4],[10,6],[14,1]]},
+  {key:'69',       grp:'九', label:'六九 6/9',   tones:[[0,0],[4,2],[7,4],[9,5],[14,1]]},
+  {key:'add9',     grp:'九', label:'加九 add9',  tones:[[0,0],[4,2],[7,4],[14,1]]},
+  {key:'madd9',    grp:'九', label:'m(add9)',    tones:[[0,0],[3,2],[7,4],[14,1]]},
+];
+QUALITIES.forEach(q=>q.iv=q.tones.map(t=>t[0]));
+
+/* ================= 邊界條件（物理限制） ================= */
+const RANGE_LO=29, RANGE_HI=96, MAX_HAND=16, MAX_UPPER_GAP=12;   // F1 ~ C7
+const inRange = n => n.every(m=>m>=RANGE_LO && m<=RANGE_HI);
+// 把音組拆成左右手：找最寬的自然分手點，兩手各不超過十度
+function splitHands(sorted){
+  let best=null;
+  for(let k=0;k<sorted.length-1;k++){
+    const lh=sorted.slice(0,k+1), rh=sorted.slice(k+1);
+    if(lh[lh.length-1]-lh[0]<=MAX_HAND && rh[rh.length-1]-rh[0]<=MAX_HAND){
+      const gap=rh[0]-lh[lh.length-1];
+      if(!best||gap>best.gap) best={lh,rh,gap};
+    }
+  }
+  return best?{lh:best.lh,rh:best.rh}:null;
+}
+// 驗證全部限制；通過回傳 {lh,rh}，否則 null
+function voiceOk(notes, rootPc){
+  if(!inRange(notes)) return null;
+  const s=[...notes].sort((a,b)=>a-b);
+  if(!s.some(m=>pc(m)===rootPc)) return null;                                  // 必含根音
+  if(!(enabledVoicings.has('invc')||enabledVoicings.has('invo')) && pc(s[0])!==rootPc) return null; // 未選轉位→根音必在最低音
+  if(!enabledVoicings.has('close') && pc(s[0])===rootPc){                       // 未選原位→不出現「根音在低音的完整三度堆疊」
+    let stacked=true; for(let i=0;i<s.length-1;i++) if(s[i+1]-s[i]>4){ stacked=false; break; }
+    if(stacked) return null;
+  }
+  if(s.length>1 && s[1]<45) return null;                                       // A2 以下只允許有最低音一個(次低音需≥A2)
+  if(s.length>1){                                                              // bass 最大距離依上聲部高度調整：越高 bass 越靠近
+    const maxGap = s[1]<=52 ? 24 : (s[1]<=64 ? 19 : 12);                        // 低→兩個八度；中→十二度；高→一個八度
+    if(s[1]-s[0]>maxGap) return null;
+  }
+  for(let i=1;i<s.length-1;i++) if(s[i+1]-s[i]>MAX_UPPER_GAP) return null;      // 上聲部相鄰<=八度(最低音除外)
+  return splitHands(s);                                                        // 單手<=十度
+}
+
+/* ================= 聲部配置（皆只重排和弦本身的音） ================= */
+function stackAscending(pcs, floor){
+  const out=[], rem=[...pcs]; let cur=floor;
+  while(rem.length){
+    let best=null,bi=-1;
+    for(let i=0;i<rem.length;i++){ const m=cur+(((rem[i]-cur)%12)+12)%12; if(best===null||m<best){best=m;bi=i;} }
+    out.push(best); cur=best+1; rem.splice(bi,1);
+  }
+  return out;
+}
+function closeOffsets(iv, inv){ let n=iv.slice(); for(let k=0;k<inv;k++) n[k]+=12; return n.sort((a,b)=>a-b); }
+function dropFrom(iv, inv, positions){                   // 從第 inv 轉位的密集排列做 drop（positions:由上往下第幾個降八度）
+  let n=closeOffsets(iv, inv);
+  positions.forEach(p=>{ const idx=n.length-p; if(idx>=0) n[idx]-=12; });
+  return n.slice().sort((a,b)=>a-b);
+}
+function dropCands(r, q, positions, label){              // 涵蓋各轉位，讓「根音在低音」的 drop 也存在
+  let c=[]; for(let i=0;i<q.iv.length;i++) c=c.concat(placeCands(dropFrom(q.iv,i,positions), r, label)); return c;
+}
+function shellOffsets(q){                                // 根音+3(或sus替代)+7(或6/9)
+  const t=q.tones;
+  const low  = t.find(x=>x[1]===2) || t.find(x=>x[1]===3) || t.find(x=>x[1]===1);
+  const high = t.find(x=>x[1]===6) || t.find(x=>x[1]===5) || t.find(x=>x[1]===1);
+  const offs=[0]; if(low) offs.push(low[0]); if(high) offs.push(high[0]);
+  return [...new Set(offs)].sort((a,b)=>a-b);
+}
+// 相對根音的位移放到多個八度並驗證，收集所有合規候選
+function placeCands(offsets, rootPc, label){
+  const out=[];
+  for(const baseOct of [24,36,48,60,72]){
+    const notes=offsets.map(o=>baseOct+rootPc+o);
+    for(const shift of [0,12,-12]){
+      const t=notes.map(n=>n+shift);
+      const hands=voiceOk(t, rootPc);
+      if(hands) out.push({notes:[...t].sort((a,b)=>a-b), lh:hands.lh, rh:hands.rh, type:label, rootPc});
+    }
+  }
+  return out;
+}
+function twoHandCands(rootPc, q){                        // 左手根音 + 右手其餘音堆疊
+  const upperPCs=q.iv.slice(1).map(i=>pc(rootPc+i)); const out=[];
+  for(const bass of [24,36,48].map(o=>o+rootPc).filter(m=>m>=RANGE_LO&&m<=57))
+    for(const floor of [52,55,57,59,60,62,64,67,72]){
+      const notes=[bass,...stackAscending(upperPCs,floor)];
+      const hands=voiceOk(notes, rootPc);
+      if(hands) out.push({notes:[...notes].sort((a,b)=>a-b), lh:hands.lh, rh:hands.rh, type:'雙手配置', rootPc});
+    }
+  return out;
+}
+
+// 轉位：非根音的和弦音放最低音（root 仍在但不在 bass）；open=把上方次低音升八度製造開離
+function inversionCands(rootPc, q, open){
+  const out=[];
+  for(const bassIv of q.iv.filter(x=>x!==0)){          // 3/5/7/9 當低音
+    const bassPc=pc(rootPc+bassIv);
+    const upperPCs=q.iv.filter(x=>x!==bassIv).map(i=>pc(rootPc+i)); // 其餘音(含根音)
+    for(const anchor of [36,41,45,48]){
+      const bass=anchor+(((bassPc-anchor)%12)+12)%12;
+      let notes=[bass,...stackAscending(upperPCs, bass+1)];
+      if(open && notes.length>=3){ const s=[...notes].sort((a,b)=>a-b); s[1]+=12; notes=s; }
+      const hands=voiceOk(notes, rootPc);
+      if(hands) out.push({notes:[...notes].sort((a,b)=>a-b), lh:hands.lh, rh:hands.rh,
+        type:(open?'轉位·開離':'轉位·密集')+'（'+NAMES[bassPc]+' 在低音）', rootPc});
+    }
+  }
+  return out;
+}
+
+/* ================= 可選的聲部配置清單 ================= */
+const VOICINGS=[
+  {key:'close',   label:'標準原位',     gen:(r,q)=>placeCands(closeOffsets(q.iv,0),r,'標準原位（三度堆疊）')},
+  {key:'invc',    label:'轉位·密集',    inv:true, gen:(r,q)=>inversionCands(r,q,false)},
+  {key:'invo',    label:'轉位·開離',    inv:true, gen:(r,q)=>inversionCands(r,q,true)},
+  {key:'drop2',   label:'Drop 2',      gen:(r,q)=>dropCands(r,q,[2],'Drop 2 開離')},
+  {key:'drop3',   label:'Drop 3',      gen:(r,q)=> q.iv.length>=4?dropCands(r,q,[3],'Drop 3 開離'):[]},
+  {key:'drop24',  label:'Drop 2+4',    gen:(r,q)=> q.iv.length>=4?dropCands(r,q,[2,4],'Drop 2+4 開離'):[]},
+  {key:'shell',   label:'Shell 導音',  gen:(r,q)=>placeCands(shellOffsets(q),r,'Shell 導音')},
+  {key:'twohand', label:'雙手配置',    gen:(r,q)=>twoHandCands(r,q)},
+];
+function poolFor(rootPc, q){
+  if(instrument==='guitar') return guitarCands(rootPc,q);
+  let pool=[];
+  VOICINGS.forEach(V=>{ if(enabledVoicings.has(V.key)) pool=pool.concat(V.gen(rootPc,q)); });
+  return pool;
+}
+function weightOf(v){                 // 輕度偏向「常彈」：中音域 + 常用型 + bass約一個八度
+  let w=1; const s=[...v.notes].sort((a,b)=>a-b);
+  const hi=s[s.length-1], lo=s[0], bg=s.length>1?s[1]-s[0]:0, t=v.type||'';
+  if(hi>84) w*=0.5; if(hi>90) w*=0.6;          // 太高的和弦少見
+  if(lo>=36 && lo<=50) w*=1.3;                  // 常見低音區 C2~D3
+  if(lo<34) w*=0.7;
+  if(bg>=7 && bg<=16) w*=1.2; else if(bg>19) w*=0.55;   // bass約八度最常見；太開(>12度)變少
+  if(t.includes('雙手')) w*=1.4;
+  else if(t.includes('標準原位')) w*=1.15;
+  else if(t.includes('Drop 2+4')) w*=0.55;
+  else if(t.includes('Drop 3')) w*=0.85;
+  else if(t.includes('Shell')) w*=0.9;
+  return w;
+}
+function generate(rootPc, q){
+  const pool=poolFor(rootPc,q);
+  if(!pool.length) return null;
+  let v;
+  if(instrument==='guitar'){ v=pool[randInt(pool.length)]; }
+  else {                                        // 加權隨機
+    const ws=pool.map(weightOf), tot=ws.reduce((a,b)=>a+b,0);
+    let r=Math.random()*tot, i=0; while(i<pool.length-1 && (r-=ws[i])>0) i++; v=pool[i];
+  }
+  v.q=q; return v;
+}
+
+/* ================= 吉他：指板引擎（真實可彈的和弦形狀） ================= */
+const GTUNING=[40,45,50,55,59,64];   // 標準調弦 低E A D G B 高E (弦 0..5，左=低音弦)
+// 可移動形狀清單。r=根音所在弦；f=各弦相對「根音把位」的品格(可為負)，null=悶音。
+// 九和弦類刻意省略五度(吉他實戰慣例)。每個形狀皆已逐音驗證音高正確。
+const GSHAPES={
+  'maj':   [ {r:0,f:[0,2,2,1,0,0]},        {r:1,f:[null,0,2,2,2,0]},        {r:2,f:[null,null,0,2,3,2]} ],
+  'min':   [ {r:0,f:[0,2,2,0,0,0]},        {r:1,f:[null,0,2,2,1,0]},        {r:2,f:[null,null,0,2,3,1]} ],
+  'dim':   [ {r:1,f:[null,0,1,2,1,null]} ],
+  'aug':   [ {r:0,f:[0,3,2,1,1,0]} ],
+  'sus2':  [ {r:1,f:[null,0,2,2,0,0]},     {r:2,f:[null,null,0,2,3,0]} ],
+  'sus4':  [ {r:0,f:[0,2,2,2,0,0]},        {r:1,f:[null,0,2,2,3,0]},        {r:2,f:[null,null,0,2,3,3]} ],
+  '7':     [ {r:0,f:[0,2,0,1,0,0]},        {r:1,f:[null,0,2,0,2,0]},        {r:2,f:[null,null,0,2,1,2]}, {r:0,f:[0,null,0,1,null,null]} ],
+  'mi7':   [ {r:0,f:[0,2,0,0,0,0]},        {r:1,f:[null,0,2,0,1,0]},        {r:2,f:[null,null,0,2,1,1]}, {r:0,f:[0,null,0,0,null,null]} ],
+  'Maj7':  [ {r:0,f:[0,2,1,1,0,0]},        {r:1,f:[null,0,2,1,2,0]},        {r:2,f:[null,null,0,2,2,2]}, {r:0,f:[0,null,1,1,null,null]} ],
+  'miMaj7':[ {r:0,f:[0,2,1,0,0,0]},        {r:1,f:[null,0,2,1,1,0]} ],
+  'dim7':  [ {r:2,f:[null,null,0,1,0,1]} ],
+  '7b5':   [ {r:1,f:[null,0,1,0,2,null]} ],
+  'mi7b5': [ {r:0,f:[0,1,0,0,null,null]},  {r:1,f:[null,0,1,0,1,null]} ],
+  '7#5':   [ {r:0,f:[0,null,0,1,1,0]} ],
+  '7sus4': [ {r:0,f:[0,2,0,2,0,0]},        {r:1,f:[null,0,0,0,3,0]} ],
+  'Add6':  [ {r:0,f:[0,2,2,1,2,0]},        {r:1,f:[null,0,2,2,2,2]},        {r:2,f:[null,null,0,2,0,2]} ],
+  'mi6':   [ {r:0,f:[0,2,2,0,2,0]},        {r:1,f:[null,0,2,2,1,2]},        {r:2,f:[null,null,0,2,0,1]} ],
+  '9':     [ {r:1,f:[null,0,-1,0,0,null]}, {r:0,f:[0,2,0,1,0,2]} ],       // 省5度 / E9型
+  'maj9':  [ {r:1,f:[null,0,-1,1,0,null]} ],   // 省5度 R-3-7-9
+  'm9':    [ {r:1,f:[null,0,-2,0,0,null]} ],   // 省5度 R-b3-b7-9
+  '69':    [ {r:1,f:[null,0,-1,-1,0,null]} ],  // 省5度 R-3-6-9
+};
+function guitarCands(rootPc, q){
+  const shapes=GSHAPES[q.key]; if(!shapes) return [];
+  const out=[]; const seen=new Set();
+  shapes.forEach(sh=>{
+    const openPc=pc(GTUNING[sh.r]), rel=sh.f[sh.r];
+    const bf0=(((rootPc-openPc-rel)%12)+12)%12;
+    for(const bf of [bf0, bf0+12]){
+      const frets=sh.f.map(t=> t==null?null:bf+t);
+      if(frets.some(x=>x!=null && (x<0||x>15))) continue;
+      const notes=[]; frets.forEach((fr,i)=>{ if(fr!=null) notes.push(GTUNING[i]+fr); });
+      if(!notes.length || pc(Math.min(...notes))!==rootPc) continue;   // 低音必須是根音
+      const key=frets.join(','); if(seen.has(key)) continue; seen.add(key);
+      const fretted=frets.filter(x=>x!=null&&x>0);
+      const minF=fretted.length?Math.min(...fretted):0;
+      out.push({notes:[...notes].sort((a,b)=>a-b), frets, baseFret:(minF<=1?0:minF),
+        type:'吉他 '+(bf===0?'開放和弦':'封閉和弦'+(minF?'('+minF+'格)':'')), rootPc});
+    }
+  });
+  return out;
+}
+
+/* ================= 五線譜（VexFlow 大譜表） ================= */
+function spell(m, rootPc, rootLetterIdx, toneByPc){
+  const tn=toneByPc[pc(m)] || {semi:0,deg:0};
+  const li=(rootLetterIdx+tn.deg)%7;
+  const letterPc=LETTER_PC[li];
+  const targetPc=pc(rootPc+tn.semi);
+  let acc=(targetPc-letterPc+12)%12; if(acc>6) acc-=12;
+  const oct=Math.round((m-acc-letterPc)/12)-1;
+  const accStr={'-2':'bb','-1':'b','0':null,'1':'#','2':'##'}[String(acc)]||null;
+  return { key:LETTER_NAMES[li].toLowerCase()+'/'+oct, acc:accStr };
+}
+// 依「音級」配色（同度數家族同色）：根/二·九/三/四/五/六/七
+const DEG_COLORS=['#dc2626','#ca8a04','#16a34a','#0d9488','#2563eb','#7c3aed','#c026d3']; // 根:紅 二九:金 三:綠 四:藍綠teal 五:藍 六:紫 七:洋紅紫
+function funcName(semi, deg){
+  switch(semi){
+    case 0: return '根音';
+    case 1: return '小二度';
+    case 2: return '大二度';
+    case 3: return '小三度';
+    case 4: return '大三度';
+    case 5: return '完全四度';
+    case 6: return deg===3?'增四度':'減五度';
+    case 7: return '完全五度';
+    case 8: return '增五度';
+    case 9: return deg===5?'大六度':'減七度';
+    case 10: return '小七度';
+    case 11: return '大七度';
+    case 13: return '小九度';
+    case 14: return '大九度';
+    default: return '';
+  }
+}
+// 吉他指法圖（fret box）：6 弦 x 5 格，按弦點依度數上色，O=空弦 ✕=悶音
+function renderFretbox(v){
+  const host=document.getElementById('fretbox'); if(!host) return;
+  if(!v || !v.frets){ host.innerHTML=''; host.style.display='none'; return; }
+  host.style.display='';
+  const W=190,H=210,nStr=6,nFret=5, left=34,top=30, gw=(W-left-16)/(nStr-1), gh=(H-top-24)/nFret;
+  const bf=v.baseFret, startFret=bf===0?1:bf;
+  const toneByPc={}; v.q.tones.forEach(t=>toneByPc[pc(v.rootPc+t[0])]={semi:t[0],deg:t[1]});
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  for(let i=0;i<nStr;i++){ const x=left+i*gw; s+=`<line x1="${x}" y1="${top}" x2="${x}" y2="${top+nFret*gh}" stroke="#666" stroke-width="1.2"/>`; }
+  for(let j=0;j<=nFret;j++){ const y=top+j*gh; s+=`<line x1="${left}" y1="${y}" x2="${left+(nStr-1)*gw}" y2="${y}" stroke="#666" stroke-width="${(bf===0&&j===0)?4:1.2}"/>`; }
+  if(bf>0) s+=`<text x="${left-8}" y="${top+gh*0.7}" fill="#888" font-size="12" text-anchor="end">${bf}fr</text>`;
+  v.frets.forEach((fr,i)=>{
+    const x=left+i*gw;
+    if(fr==null){ s+=`<text x="${x}" y="${top-10}" fill="#ff6b6b" font-size="15" text-anchor="middle">✕</text>`; return; }
+    if(fr===0){ s+=`<circle cx="${x}" cy="${top-14}" r="5.5" fill="none" stroke="#8b94b8" stroke-width="1.5"/>`; return; }
+    const note=GTUNING[i]+fr, tn=toneByPc[pc(note)], col=tn?DEG_COLORS[tn.deg]:'#333';
+    const cy=top+(fr-startFret)*gh+gh/2;
+    s+=`<circle cx="${x}" cy="${cy}" r="8.5" fill="${col}"/>`;
+  });
+  s+=`</svg>`; host.innerHTML=s;
+}
+function drawStaff(v){
+  const host=document.getElementById('staff'); host.innerHTML='';
+  const leg=document.getElementById('degLegend'); if(leg) leg.innerHTML='';
+  renderFretbox((instrument==='guitar')?v:null);
+  if(!window.Vex){ host.innerHTML='<div style="color:#555;padding:24px;font-size:13px">五線譜需連網載入 VexFlow（離線時仍可作答，答案見下方文字）</div>'; return; }
+  const VF=Vex.Flow;
+  const renderer=new VF.Renderer(host, VF.Renderer.Backends.SVG);
+  renderer.resize(360,250); const c=renderer.getContext();
+  const treble=new VF.Stave(26,15,300).addClef('treble');
+  const bass=new VF.Stave(26,120,300).addClef('bass');
+  treble.setContext(c).draw(); bass.setContext(c).draw();
+  new VF.StaveConnector(treble,bass).setType('brace').setContext(c).draw();
+  new VF.StaveConnector(treble,bass).setType('singleLeft').setContext(c).draw();
+  if(!v) return;
+  const toneByPc={}; v.q.tones.forEach(t=>toneByPc[pc(v.rootPc+t[0])]={semi:t[0],deg:t[1]});
+  const rootLetter=ROOT_SPELL[v.rootPc].letter;
+  const mk=(midis,clef)=>{
+    const arr=[...midis].sort((a,b)=>a-b);
+    if(!arr.length) return new VF.StaveNote({keys:[clef==='treble'?'b/4':'d/3'],duration:'wr',clef});
+    const keys=[],accs=[];
+    arr.forEach(m=>{ const sp=spell(m,v.rootPc,rootLetter,toneByPc); keys.push(sp.key); accs.push(sp.acc); });
+    const note=new VF.StaveNote({keys,duration:'w',clef});
+    accs.forEach((a,i)=>{ if(a) note.addModifier(new VF.Accidental(a),i); });
+    arr.forEach((m,i)=>{ const tn=toneByPc[pc(m)]; const col=tn?DEG_COLORS[tn.deg]:'#333'; note.setKeyStyle(i,{fillStyle:col,strokeStyle:col}); });
+    return note;
+  };
+  const tNote=mk(v.notes.filter(m=>m>=60),'treble');
+  const bNote=mk(v.notes.filter(m=>m<60),'bass');
+  const tV=new VF.Voice({num_beats:4,beat_value:4}).setMode(VF.Voice.Mode.SOFT).addTickables([tNote]);
+  const bV=new VF.Voice({num_beats:4,beat_value:4}).setMode(VF.Voice.Mode.SOFT).addTickables([bNote]);
+  new VF.Formatter().joinVoices([tV]).format([tV],240);
+  new VF.Formatter().joinVoices([bV]).format([bV],240);
+  tV.draw(c,treble); bV.draw(c,bass);
+  // 圖例：列出實際出現的音級功能（同度數家族同色）
+  if(leg){
+    const seen=new Set(), items=[];
+    [...v.notes].sort((a,b)=>a-b).forEach(m=>{ const tn=toneByPc[pc(m)]; if(tn && !seen.has(tn.semi)){ seen.add(tn.semi); items.push(tn); } });
+    items.sort((a,b)=>a.deg-b.deg);
+    leg.innerHTML=items.map(tn=>`<span><span class="dot" style="background:${DEG_COLORS[tn.deg]}"></span>${funcName(tn.semi,tn.deg)}</span>`).join('');
+  }
+}
+
+/* ================= 設定 ================= */
+let playStyle='both', appMode='quiz', practiceRoot=-1, instrument='piano';
+let enabledVoicings=new Set(VOICINGS.filter(v=>!v.inv && v.key!=='close' && v.key!=='shell').map(v=>v.key));   // 預設：Drop系列+雙手(原位/Shell/轉位預設關)
+let enabled=new Set(['7','mi7','Maj7','dim7','mi7b5']);
+// 記住勾選：存在此瀏覽器 localStorage（同網址下永久有效，換網址/清資料才會忘）
+const LS_KEY='chordTrainer.v1';
+function saveSettings(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({enabled:[...enabled], voic:[...enabledVoicings]})); }catch(e){} }
+(function loadSettings(){ try{
+  const s=JSON.parse(localStorage.getItem(LS_KEY)||'null'); if(!s) return;
+  if(Array.isArray(s.enabled)){ const e=s.enabled.filter(k=>QUALITIES.some(q=>q.key===k)); if(e.length>=2) enabled=new Set(e); }
+  if(Array.isArray(s.voic)){ const v=s.voic.filter(k=>VOICINGS.some(V=>V.key===k)); if(v.length>=1) enabledVoicings=new Set(v); }
+}catch(e){} })();
+const chipWrap=document.getElementById('chipSet');
+const chordChips={};
+const CHGROUPS=[{k:'三',name:'三和弦'},{k:'七',name:'七和弦'},{k:'六',name:'六和弦'},{k:'掛',name:'掛留和弦'},{k:'變',name:'變化和弦'},{k:'九',name:'九和弦'}];
+const qGroup=q=>q.grp;
+const groupUI=[];
+CHGROUPS.forEach(g=>{
+  const head=document.createElement('div'); head.className='grphead';
+  const body=document.createElement('div'); body.className='grpbody';
+  body.dataset.open = (g.k==='七')?'1':'0';                 // 預設只展開七和弦
+  head.onclick=()=>{ body.dataset.open = body.dataset.open==='1'?'0':'1'; refreshGroups(); };
+  QUALITIES.filter(q=>qGroup(q)===g.k).forEach(q=>{
+    const c=document.createElement('div');
+    c.className='chip'+(enabled.has(q.key)?' sel':''); c.textContent=q.label;
+    chordChips[q.key]=c;
+    c.onclick=()=>{
+      if(enabled.has(q.key)){ if(enabled.size<=2) return; enabled.delete(q.key); c.classList.remove('sel'); }
+      else { enabled.add(q.key); c.classList.add('sel'); }
+      saveSettings(); refreshGroups(); renderAnswers();
+    };
+    body.appendChild(c);
+  });
+  groupUI.push({g,head,body});
+  chipWrap.appendChild(head); chipWrap.appendChild(body);
+});
+function refreshGroups(){
+  groupUI.forEach(u=>{
+    const open=u.body.dataset.open==='1';
+    u.body.style.display=open?'grid':'none';
+    const inG=QUALITIES.filter(q=>qGroup(q)===u.g.k);
+    const sel=inG.filter(q=>enabled.has(q.key)).length;
+    u.head.textContent=(open?'▾ ':'▸ ')+u.g.name+'（'+sel+'/'+inG.length+'）';
+  });
+}
+refreshGroups();
+// 排列方式多選 chips
+const voicingWrap=document.getElementById('voicingSet');
+const invWrap=document.getElementById('invSet');
+VOICINGS.forEach(V=>{
+  const c=document.createElement('div');
+  c.className='chip'+(enabledVoicings.has(V.key)?' sel':''); c.textContent=V.label;
+  c.onclick=()=>{
+    if(enabledVoicings.has(V.key)){ if(enabledVoicings.size<=1) return; enabledVoicings.delete(V.key); c.classList.remove('sel'); }
+    else { enabledVoicings.add(V.key); c.classList.add('sel'); }
+    saveSettings(); updateAvailability();
+  };
+  (V.inv?invWrap:voicingWrap).appendChild(c);
+});
+// 可用性：目前排列方式下，某和弦是否能生成
+function chordAvailable(q, root){
+  if(root>=0) return poolFor(root,q).length>0;
+  for(let r=0;r<12;r++) if(poolFor(r,q).length>0) return true;
+  return false;
+}
+function updateAvailability(){
+  QUALITIES.forEach(q=>{ const c=chordChips[q.key]; if(c) c.classList.toggle('na', !chordAvailable(q,-1)); });
+  renderAnswers();
+}
+document.getElementById('playmode').querySelectorAll('button').forEach(b=>{
+  b.onclick=()=>{ playStyle=b.dataset.p; document.querySelectorAll('#playmode button').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); };
+});
+document.getElementById('apptab').querySelectorAll('button').forEach(b=>{
+  b.onclick=()=>setAppMode(b.dataset.a);
+});
+document.getElementById('instrument').querySelectorAll('button').forEach(b=>{
+  b.onclick=()=>setInstrument(b.dataset.i);
+});
+let advOpen=false;
+function refreshAdv(){
+  const piano=instrument==='piano';
+  document.getElementById('advHead').style.display = piano?'':'none';
+  document.getElementById('pianoOpts').style.display = (piano&&advOpen)?'':'none';
+  document.getElementById('advHead').textContent = (advOpen?'▾ ':'▸ ')+'排列方式（進階，可不理）';
+}
+document.getElementById('advHead').onclick=()=>{ advOpen=!advOpen; refreshAdv(); };
+function setInstrument(inst){
+  instrument=inst; currentQ=null; answered=false;
+  document.querySelectorAll('#instrument button').forEach(x=>x.classList.toggle('sel', x.dataset.i===inst));
+  refreshAdv();
+  if(inst==='guitar') loadGuitar();
+  updateAvailability(); drawStaff(null);
+  const fb=document.getElementById('feedback');
+  fb.textContent = appMode==='quiz' ? '選好和弦，按「新題目」開始' : '點下方任一和弦即可聆聽（可先選根音）';
+}
+document.getElementById('vol').oninput=(e)=>{ userVolume=e.target.value/100; if(master) master.gain.value=userVolume; };
+document.getElementById('rev').oninput=(e)=>{ userReverb=e.target.value/100*0.5; if(reverbGain) reverbGain.gain.value=userReverb; };
+// 練習根音選擇（隨機 + C~B）
+const rootRow=document.getElementById('rootRow');
+[{t:'隨機',v:-1}].concat(NAMES.map((n,i)=>({t:n,v:i}))).forEach(o=>{
+  const c=document.createElement('div');
+  c.className='chip'+(o.v===practiceRoot?' sel':''); c.textContent=o.t;
+  c.onclick=()=>{ practiceRoot=o.v; rootRow.querySelectorAll('.chip').forEach(x=>x.classList.remove('sel')); c.classList.add('sel'); if(appMode==='practice') renderAnswers(); };
+  rootRow.appendChild(c);
+});
+
+/* ================= 遊戲流程 ================= */
+let currentQ=null, answered=false;
+let stats={right:0,total:0,streak:0};
+const enabledQualities = () => QUALITIES.filter(q=>enabled.has(q.key));
+const noteName = m => NAMES[pc(m)] + (Math.floor(m/12)-1);
+
+async function ensureSamples(){
+  const fb=document.getElementById('feedback');
+  if(!samplesReady){
+    if(loadingSamples) return false;
+    loadingSamples=true;
+    fb.textContent='🎹 載入鋼琴取樣中… 0%';
+    const ok=await loadSamples((d,t)=>{ fb.textContent=`🎹 載入鋼琴取樣中… ${Math.round(d/t*100)}%`; });
+    loadingSamples=false;
+    if(!ok){ fb.innerHTML='⚠️ 讀不到音檔。請用本機伺服器或已上線的網址開啟。'; return false; }
+  }
+  if(instrument==='guitar'){ if(!guitarPromise) fb.textContent='🎸 載入吉他音色中…'; await loadGuitar(); }
+  return true;
+}
+function setAppMode(m){
+  appMode=m; answered=false; currentQ=null;
+  document.querySelectorAll('#apptab button').forEach(x=>x.classList.toggle('sel', x.dataset.a===m));
+  document.getElementById('scoreCard').style.display = m==='quiz'?'':'none';
+  document.getElementById('quizRow').style.display   = m==='quiz'?'':'none';
+  document.getElementById('rootWrap').style.display  = m==='practice'?'':'none';
+  document.getElementById('feedback').textContent = m==='quiz'
+    ? '選好和弦，按「新題目」開始' : '點下方任一和弦即可聆聽（可先選根音）';
+  drawStaff(null); renderAnswers();
+}
+async function playPractice(q){
+  if(!(await ensureSamples())) return;
+  const rp = practiceRoot<0 ? randInt(12) : practiceRoot;
+  let v=null; for(let i=0;i<25&&!v;i++) v=generate(rp,q);
+  if(!v){ document.getElementById('feedback').textContent='⚠️ 此和弦在目前設定下無法生成，換個排列方式試試'; return; }
+  currentQ=v; drawStaff(v);
+  const noteStr=[...v.notes].sort((a,b)=>a-b).map(noteName).join(' · ');
+  document.getElementById('feedback').innerHTML=`🎹 ${NAMES[v.rootPc]} ${q.label} · <span style="color:var(--muted)">${v.type}</span><br><span style="color:var(--muted);font-size:13px">${noteStr}</span>`;
+  playChord(v.notes, playStyle);
+}
+
+function newQuestion(){
+  answered=false;
+  const pool=enabledQualities().filter(q=>chordAvailable(q,-1)); let v=null;
+  if(!pool.length){ document.getElementById('feedback').textContent='⚠️ 目前勾選的和弦在這些排列方式下都生不出來，請多勾一種排列'; return; }
+  for(let tries=0;tries<25&&!v;tries++){
+    v=generate(randInt(12), pool[randInt(pool.length)]);
+  }
+  if(!v){ document.getElementById('feedback').textContent='⚠️ 無法生成合規和弦，請換設定'; return; }
+  currentQ=v; drawStaff(null); renderAnswers();
+  document.getElementById('feedback').textContent='🔊 聽好了…';
+  document.querySelectorAll('.answers button').forEach(b=>b.disabled=false);
+  playChord(v.notes, playStyle);
+}
+function renderAnswers(){
+  const el=document.getElementById('answers'); el.innerHTML='';
+  if(appMode==='practice'){
+    enabledQualities().forEach(q=>{
+      const b=document.createElement('button'); b.textContent=q.label;
+      const ok=chordAvailable(q, practiceRoot);
+      if(ok){ b.onclick=()=>playPractice(q); }
+      else { b.classList.add('na'); b.disabled=true; b.title='此排列/音域下無法生成'; }
+      el.appendChild(b);
+    });
+  } else {
+    enabledQualities().forEach(q=>{
+      const b=document.createElement('button'); b.textContent=q.label;
+      b.onclick=()=>answer(q.key,b); if(answered) b.disabled=true;
+      el.appendChild(b);
+    });
+  }
+}
+function answer(key, btn){
+  if(answered||!currentQ) return;
+  answered=true; stats.total++;
+  const correct = key===currentQ.q.key;
+  document.querySelectorAll('.answers button').forEach(b=>{
+    b.disabled=true; if(b.textContent===currentQ.q.label) b.classList.add('correct');
+  });
+  const rootName=NAMES[currentQ.rootPc];
+  const noteStr=[...currentQ.notes].sort((a,b)=>a-b).map(noteName).join(' · ');
+  const tag=`${rootName} ${currentQ.q.label} · <span style="color:var(--muted)">${currentQ.type}</span><br><span style="color:var(--muted);font-size:13px">${noteStr}</span>`;
+  if(correct){ stats.right++; stats.streak++; playSuccess();
+    document.getElementById('feedback').innerHTML='✅ 答對！ '+tag;
+  } else { stats.streak=0; btn.classList.add('wrong');
+    document.getElementById('feedback').innerHTML='❌ 正解：'+tag;
+  }
+  drawStaff(currentQ);
+  document.getElementById('right').textContent=stats.right;
+  document.getElementById('total').textContent=stats.total;
+  document.getElementById('streak').textContent=stats.streak;
+}
+
+document.getElementById('newBtn').onclick=async ()=>{
+  if(!(await ensureSamples())) return;
+  newQuestion();
+};
+document.getElementById('replayBtn').onclick=()=>{ if(currentQ) playChord(currentQ.notes, playStyle); };
+drawStaff(null); updateAvailability(); refreshAdv();
+
+/* ================= PWA：註冊 Service Worker（離線） ================= */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('service-worker.js').catch(e=>console.warn('SW 註冊失敗', e)));
+}
+</script>
+</body>
+</html>

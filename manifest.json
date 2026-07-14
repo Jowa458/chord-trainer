@@ -1,0 +1,16 @@
+{
+  "name": "和弦聽力訓練 · 實戰配置",
+  "short_name": "和弦訓練",
+  "description": "含根音的實戰和弦排列（Drop-2 / 雙手配置）聽力訓練，真鋼琴取樣、五線譜顯示。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1220",
+  "theme_color": "#0f1220",
+  "lang": "zh-Hant",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
