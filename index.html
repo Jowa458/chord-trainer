@@ -132,7 +132,7 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    <b>版本 v33</b>
+    <b>版本 v34</b>
   </div>
 
 <script>
@@ -146,7 +146,7 @@ const egbuffers={};                  // 電吉他 (eguitar/)
 let samplesReady=false, loadingSamples=false;
 let guitarPromise=null, eguitarPromise=null;
 // 三樂器音量補償(依實測平均音量拉近；可再依耳朵微調)
-const INSTGAIN={ piano:1.0, guitar:0.55, eguitar:0.32 };
+const INSTGAIN={ piano:0.68, guitar:1.0, eguitar:0.52 };
 const SAMPLE_LO=29, SAMPLE_HI=96;    // 和弦生成範圍 F1~C7
 const NOTE_NAMES=['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B']; // 檔名用 s 代替 # (避免主機對 # 出錯)
 const sampleFile = m => NOTE_NAMES[((m%12)+12)%12] + (Math.floor(m/12)-1) + '.m4a';
