@@ -37,6 +37,7 @@
     cursor:pointer; transition:transform .05s, background .15s;
   }
   button:active { transform:scale(.96); }
+  button.pressed, .chip.pressed { transform:scale(.93); filter:brightness(1.35); }
   button.primary { background:var(--accent); border-color:var(--accent); }
   button.wide { flex:1; min-width:130px; }
   .seg { display:flex; gap:8px; flex-wrap:wrap; }
@@ -71,7 +72,8 @@
     <div style="height:8px"></div>
     <div class="seg" id="instrument">
       <button data-i="piano" class="sel">🎹 鋼琴</button>
-      <button data-i="guitar">🎸 吉他</button>
+      <button data-i="guitar">🎸 木吉他</button>
+      <button data-i="eguitar">🎸 電吉他</button>
     </div>
   </div>
 
@@ -130,7 +132,7 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    鋼琴用真鋼琴取樣、吉他用線上木吉他音色；五線譜需連網載入。<b>版本 v29</b>
+    鋼琴用真鋼琴取樣、吉他用線上木吉他音色；五線譜需連網載入。<b>版本 v32</b>
   </div>
 
 <script>
@@ -138,10 +140,13 @@
 let ctx, master, reverb, reverbGain, comp;
 let userVolume=1.0;                  // 由音量滑桿控制
 let userReverb=0.16;                 // 由殘響滑桿控制 (0~0.5)
-const buffers={};                    // midi -> AudioBuffer (鋼琴)
-const gbuffers={};                   // midi -> AudioBuffer (吉他，放 guitar/ 資料夾)
+const buffers={};                    // 鋼琴
+const gbuffers={};                   // 木吉他 (guitar/)
+const egbuffers={};                  // 電吉他 (eguitar/)
 let samplesReady=false, loadingSamples=false;
-let guitarPromise=null;              // 線上吉他音色載入(共用 promise)
+let guitarPromise=null, eguitarPromise=null;
+// 三樂器音量補償(依實測平均音量拉近；可再依耳朵微調)
+const INSTGAIN={ piano:1.0, guitar:0.55, eguitar:0.32 };
 const SAMPLE_LO=29, SAMPLE_HI=96;    // 和弦生成範圍 F1~C7
 const NOTE_NAMES=['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B']; // 檔名用 s 代替 # (避免主機對 # 出錯)
 const sampleFile = m => NOTE_NAMES[((m%12)+12)%12] + (Math.floor(m/12)-1) + '.m4a';
@@ -176,55 +181,54 @@ function loadSamples(onProgress){
       .then(()=>{ done++; if(onProgress) onProgress(done,list.length); })
   )).then(()=>{ samplesReady=true; return Object.keys(buffers).length; });
 }
-// 本機吉他取樣（guitar/ 資料夾，E2~C6，命名同鋼琴慣例；讀不到的音自動退回鋼琴音色）
+// 本機吉他取樣（guitar/=木吉他, eguitar/=電吉他；E2~C6，命名同鋼琴慣例；讀不到自動退回鋼琴）
 const gFile=m=>NOTE_NAMES[((m%12)+12)%12]+(Math.floor(m/12)-1)+'.m4a';
-function loadGuitar(){
-  if(guitarPromise) return guitarPromise; initAudio();
+function loadGuitarSet(folder, bufs){
+  initAudio();
   const list=[]; for(let m=40;m<=84;m++) list.push(m);   // E2 ~ C6
-  guitarPromise=Promise.all(list.map(m=>
-    fetch('guitar/'+gFile(m))
+  return Promise.all(list.map(m=>
+    fetch(folder+'/'+gFile(m))
       .then(r=>{ if(!r.ok) throw 0; return r.arrayBuffer(); })
       .then(a=>new Promise((res,rej)=>ctx.decodeAudioData(a,res,rej)))
-      .then(b=>{ gbuffers[m]=b; }).catch(()=>{})
-  )).then(()=>Object.keys(gbuffers).length);
-  return guitarPromise;
+      .then(b=>{ bufs[m]=b; }).catch(()=>{})
+  )).then(()=>Object.keys(bufs).length);
 }
-function nearestG(midi){             // 找最接近的已載入吉他取樣
-  let best=null,bd=1e9;
-  for(const k in gbuffers){ const d=Math.abs(+k-midi); if(d<bd){bd=d;best=+k;} }
-  return best;
-}
+function loadGuitar(){  if(!guitarPromise)  guitarPromise =loadGuitarSet('guitar', gbuffers);  return guitarPromise;  }
+function loadEGuitar(){ if(!eguitarPromise) eguitarPromise=loadGuitarSet('eguitar', egbuffers); return eguitarPromise; }
+function nearestG(midi, bufs){ let best=null,bd=1e9; for(const k in bufs){ const d=Math.abs(+k-midi); if(d<bd){bd=d;best=+k;} } return best; }
 function playNote(midi, when, dur){
   let buf=buffers[midi], rate=1;
-  if(instrument==='guitar'){
-    const gm=nearestG(midi);
-    if(gm!=null){ buf=gbuffers[gm]; rate=Math.pow(2,(midi-gm)/12); }  // 微幅變調補齊
+  if(instrument!=='piano'){
+    const bufs = instrument==='eguitar' ? egbuffers : gbuffers;
+    const gm=nearestG(midi, bufs);
+    if(gm!=null){ buf=bufs[gm]; rate=Math.pow(2,(midi-gm)/12); }   // 微幅變調補齊
   }
   if(!buf) return;
   const t=ctx.currentTime+when;
   const src=ctx.createBufferSource(); src.buffer=buf; src.playbackRate.value=rate;
+  const peak=0.85*(INSTGAIN[instrument]||1);           // 音量補償(三樂器拉近)
   const g=ctx.createGain();
-  g.gain.setValueAtTime(0.85,t);
-  g.gain.setValueAtTime(0.85, t+Math.max(0.05,dur-0.5));
-  g.gain.linearRampToValueAtTime(0.0001, t+dur);      // 尾端淡出
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.linearRampToValueAtTime(peak,t+0.004);        // 4ms 起音防爆音(不動尾巴)
   src.connect(g); g.connect(master);
-  src.start(t); src.stop(t+dur+0.15);
+  src.onended=()=>{ try{ src.disconnect(); g.disconnect(); }catch(e){} };
+  src.start(t);                                         // 取樣自然衰減播到底
 }
 function playChord(midis, style){
   if(ctx&&ctx.state==='suspended') ctx.resume();
   const s=[...midis].sort((a,b)=>a-b);
-  if(instrument==='guitar'){                     // 吉他：由低到高「快速撥弦」
+  if(instrument!=='piano'){                       // 吉他(木/電)：由低到高「快速撥弦」
     const strum=0.03;                            // 每弦間隔(快速刷過)
-    if(style==='block'){ s.forEach((m,i)=>playNote(m,i*0.012,3.2)); }         // 幾乎同時刷
-    else if(style==='arp'){ s.forEach((m,i)=>playNote(m,i*strum,3.2)); }      // 快速撥弦
-    else { s.forEach((m,i)=>playNote(m,i*strum,2.2));                          // 刷兩次
-           const t0=s.length*strum+0.9; s.forEach((m,i)=>playNote(m,t0+i*strum,3.2)); }
+    if(style==='block'){ s.forEach((m,i)=>playNote(m,i*0.012,5.0)); }         // 幾乎同時刷
+    else if(style==='arp'){ s.forEach((m,i)=>playNote(m,i*strum,5.0)); }      // 快速撥弦
+    else { s.forEach((m,i)=>playNote(m,i*strum,2.4));                          // 先撥弦
+           const t0=s.length*strum+0.9; s.forEach((m,i)=>playNote(m,t0+i*0.006,5.0)); } // 再柱狀(幾乎同時)
     return;
   }
   // 鋼琴
-  if(style==='arp'){ s.forEach((m,i)=>playNote(m,i*0.28,2.8)); }
-  else if(style==='block'){ s.forEach((m,i)=>playNote(m,i*0.008,3.0)); }
-  else { s.forEach((m,i)=>playNote(m,i*0.2,1.6)); const t0=s.length*0.2+0.25; s.forEach(m=>playNote(m,t0,3.0)); }
+  if(style==='arp'){ s.forEach((m,i)=>playNote(m,i*0.28,4.5)); }
+  else if(style==='block'){ s.forEach((m,i)=>playNote(m,i*0.008,5.0)); }
+  else { s.forEach((m,i)=>playNote(m,i*0.2,2.2)); const t0=s.length*0.2+0.3; s.forEach(m=>playNote(m,t0,5.0)); }
 }
 /* 答對歡樂音效：明亮鈴聲上行 */
 function bell(freq, t, dur, gainv){
@@ -243,6 +247,21 @@ function playSuccess(){
   const now=ctx.currentTime, mf=m=>440*Math.pow(2,(m-69)/12);
   [72,76,79,84].forEach((m,i)=> bell(mf(m), now+i*0.075, 0.55, 0.22)); // C-E-G-C 上行
   bell(mf(88), now+0.30, 0.9, 0.18);                                    // 高音收尾閃亮
+}
+function playWrong(){                              // 答錯：低沉下行「嗚—」提示音
+  if(!ctx) return;
+  const now=ctx.currentTime;
+  [220,180].forEach((f,i)=>{
+    const t=now+i*0.14;
+    const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(f,t); o.frequency.exponentialRampToValueAtTime(f*0.85,t+0.16);
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=900;
+    const g=ctx.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.22,t+0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.22);
+    o.connect(lp); lp.connect(g); g.connect(master);
+    o.start(t); o.stop(t+0.26);
+  });
 }
 
 /* ================= 樂理定義 ================= */
@@ -411,7 +430,7 @@ const VOICINGS=[
   {key:'twohand', label:'雙手配置',    gen:(r,q)=>twoHandCands(r,q)},
 ];
 function poolFor(rootPc, q){
-  if(instrument==='guitar') return guitarCands(rootPc,q);
+  if(instrument!=='piano') return guitarCands(rootPc,q);
   let pool=[];
   VOICINGS.forEach(V=>{ if(enabledVoicings.has(V.key)) pool=pool.concat(V.gen(rootPc,q)); });
   return pool;
@@ -434,7 +453,7 @@ function generate(rootPc, q){
   const pool=poolFor(rootPc,q);
   if(!pool.length) return null;
   let v;
-  if(instrument==='guitar'){ v=pool[randInt(pool.length)]; }
+  if(instrument!=='piano'){ v=pool[randInt(pool.length)]; }
   else {                                        // 加權隨機
     const ws=pool.map(weightOf), tot=ws.reduce((a,b)=>a+b,0);
     let r=Math.random()*tot, i=0; while(i<pool.length-1 && (r-=ws[i])>0) i++; v=pool[i];
@@ -547,7 +566,7 @@ function renderFretbox(v){
 function drawStaff(v){
   const host=document.getElementById('staff'); host.innerHTML='';
   const leg=document.getElementById('degLegend'); if(leg) leg.innerHTML='';
-  renderFretbox((instrument==='guitar')?v:null);
+  renderFretbox((instrument!=='piano')?v:null);
   if(!window.Vex){ host.innerHTML='<div style="color:#555;padding:24px;font-size:13px">五線譜需連網載入 VexFlow（離線時仍可作答，答案見下方文字）</div>'; return; }
   const VF=Vex.Flow;
   const renderer=new VF.Renderer(host, VF.Renderer.Backends.SVG);
@@ -592,11 +611,20 @@ let enabledVoicings=new Set(VOICINGS.filter(v=>!v.inv && v.key!=='close' && v.ke
 let enabled=new Set(['7','mi7','Maj7','dim7','mi7b5']);
 // 記住勾選：存在此瀏覽器 localStorage（同網址下永久有效，換網址/清資料才會忘）
 const LS_KEY='chordTrainer.v1';
-function saveSettings(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({enabled:[...enabled], voic:[...enabledVoicings]})); }catch(e){} }
+function saveSettings(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({
+  enabled:[...enabled], voic:[...enabledVoicings],
+  inst:instrument, play:playStyle, root:practiceRoot, mode:appMode, vol:userVolume, rev:userReverb
+})); }catch(e){} }
 (function loadSettings(){ try{
   const s=JSON.parse(localStorage.getItem(LS_KEY)||'null'); if(!s) return;
   if(Array.isArray(s.enabled)){ const e=s.enabled.filter(k=>QUALITIES.some(q=>q.key===k)); if(e.length>=2) enabled=new Set(e); }
   if(Array.isArray(s.voic)){ const v=s.voic.filter(k=>VOICINGS.some(V=>V.key===k)); if(v.length>=1) enabledVoicings=new Set(v); }
+  if(s.inst==='piano'||s.inst==='guitar'||s.inst==='eguitar') instrument=s.inst;
+  if(s.play==='both'||s.play==='arp'||s.play==='block') playStyle=s.play;
+  if(typeof s.root==='number' && s.root>=-1 && s.root<=11) practiceRoot=s.root;
+  if(s.mode==='quiz'||s.mode==='practice') appMode=s.mode;
+  if(typeof s.vol==='number' && s.vol>=0 && s.vol<=2) userVolume=s.vol;
+  if(typeof s.rev==='number' && s.rev>=0 && s.rev<=0.5) userReverb=s.rev;
 }catch(e){} })();
 const chipWrap=document.getElementById('chipSet');
 const chordChips={};
@@ -656,7 +684,7 @@ function updateAvailability(){
   renderAnswers();
 }
 document.getElementById('playmode').querySelectorAll('button').forEach(b=>{
-  b.onclick=()=>{ playStyle=b.dataset.p; document.querySelectorAll('#playmode button').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); };
+  b.onclick=()=>{ playStyle=b.dataset.p; document.querySelectorAll('#playmode button').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); saveSettings(); };
 });
 document.getElementById('apptab').querySelectorAll('button').forEach(b=>{
   b.onclick=()=>setAppMode(b.dataset.a);
@@ -676,19 +704,20 @@ function setInstrument(inst){
   instrument=inst; currentQ=null; answered=false;
   document.querySelectorAll('#instrument button').forEach(x=>x.classList.toggle('sel', x.dataset.i===inst));
   refreshAdv();
-  if(inst==='guitar') loadGuitar();
+  if(inst==='guitar') loadGuitar(); else if(inst==='eguitar') loadEGuitar();
   updateAvailability(); drawStaff(null);
   const fb=document.getElementById('feedback');
   fb.textContent = appMode==='quiz' ? '選好和弦，按「新題目」開始' : '點下方任一和弦即可聆聽（可先選根音）';
+  saveSettings();
 }
-document.getElementById('vol').oninput=(e)=>{ userVolume=e.target.value/100; if(master) master.gain.value=userVolume; };
-document.getElementById('rev').oninput=(e)=>{ userReverb=e.target.value/100*0.5; if(reverbGain) reverbGain.gain.value=userReverb; };
+document.getElementById('vol').oninput=(e)=>{ userVolume=e.target.value/100; if(master) master.gain.value=userVolume; saveSettings(); };
+document.getElementById('rev').oninput=(e)=>{ userReverb=e.target.value/100*0.5; if(reverbGain) reverbGain.gain.value=userReverb; saveSettings(); };
 // 練習根音選擇（隨機 + C~B）
 const rootRow=document.getElementById('rootRow');
 [{t:'隨機',v:-1}].concat(NAMES.map((n,i)=>({t:n,v:i}))).forEach(o=>{
   const c=document.createElement('div');
   c.className='chip'+(o.v===practiceRoot?' sel':''); c.textContent=o.t;
-  c.onclick=()=>{ practiceRoot=o.v; rootRow.querySelectorAll('.chip').forEach(x=>x.classList.remove('sel')); c.classList.add('sel'); if(appMode==='practice') renderAnswers(); };
+  c.onclick=()=>{ practiceRoot=o.v; rootRow.querySelectorAll('.chip').forEach(x=>x.classList.remove('sel')); c.classList.add('sel'); saveSettings(); if(appMode==='practice') renderAnswers(); };
   rootRow.appendChild(c);
 });
 
@@ -708,7 +737,8 @@ async function ensureSamples(){
     loadingSamples=false;
     if(!ok){ fb.innerHTML='⚠️ 讀不到音檔。請用本機伺服器或已上線的網址開啟。'; return false; }
   }
-  if(instrument==='guitar'){ if(!guitarPromise) fb.textContent='🎸 載入吉他音色中…'; await loadGuitar(); }
+  if(instrument==='guitar'){ if(!guitarPromise) fb.textContent='🎸 載入木吉他音色中…'; await loadGuitar(); }
+  else if(instrument==='eguitar'){ if(!eguitarPromise) fb.textContent='🎸 載入電吉他音色中…'; await loadEGuitar(); }
   return true;
 }
 function setAppMode(m){
@@ -719,7 +749,7 @@ function setAppMode(m){
   document.getElementById('rootWrap').style.display  = m==='practice'?'':'none';
   document.getElementById('feedback').textContent = m==='quiz'
     ? '選好和弦，按「新題目」開始' : '點下方任一和弦即可聆聽（可先選根音）';
-  drawStaff(null); renderAnswers();
+  drawStaff(null); renderAnswers(); saveSettings();
 }
 async function playPractice(q){
   if(!(await ensureSamples())) return;
@@ -775,7 +805,7 @@ function answer(key, btn){
   const tag=`${rootName} ${currentQ.q.label} · <span style="color:var(--muted)">${currentQ.type}</span><br><span style="color:var(--muted);font-size:13px">${noteStr}</span>`;
   if(correct){ stats.right++; stats.streak++; playSuccess();
     document.getElementById('feedback').innerHTML='✅ 答對！ '+tag;
-  } else { stats.streak=0; btn.classList.add('wrong');
+  } else { stats.streak=0; playWrong(); btn.classList.add('wrong');
     document.getElementById('feedback').innerHTML='❌ 正解：'+tag;
   }
   drawStaff(currentQ);
@@ -789,7 +819,16 @@ document.getElementById('newBtn').onclick=async ()=>{
   newQuestion();
 };
 document.getElementById('replayBtn').onclick=()=>{ if(currentQ) playChord(currentQ.notes, playStyle); };
-drawStaff(null); updateAvailability(); refreshAdv();
+// 套用已儲存的設定到畫面（下次開啟＝上次關閉的狀態）
+document.querySelectorAll('#playmode button').forEach(b=>b.classList.toggle('sel', b.dataset.p===playStyle));
+document.getElementById('vol').value = Math.round(userVolume*100);
+document.getElementById('rev').value = Math.round(userReverb/0.5*100);
+setInstrument(instrument);
+setAppMode(appMode);
+
+/* ================= 按壓回饋（手機/滑鼠通用，用 pointer 事件） ================= */
+document.addEventListener('pointerdown', e=>{ const b=e.target.closest('button,.chip'); if(b) b.classList.add('pressed'); }, {passive:true});
+['pointerup','pointercancel'].forEach(ev=>document.addEventListener(ev, ()=>{ document.querySelectorAll('.pressed').forEach(x=>x.classList.remove('pressed')); }, {passive:true}));
 
 /* ================= PWA：註冊 Service Worker（離線） ================= */
 if('serviceWorker' in navigator){
