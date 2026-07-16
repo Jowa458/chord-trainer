@@ -43,6 +43,8 @@
   .seg { display:flex; gap:8px; flex-wrap:wrap; }
   .seg button { flex:1; min-width:96px; padding:10px; font-size:14px; }
   .seg button.sel { background:var(--accent); border-color:var(--accent); }
+  .seg button.beta { flex:0 1 auto; min-width:0; padding:6px 10px; font-size:11px; opacity:.82; }  /* 管弦樂：附加功能,做小 */
+  .seg button.beta sup { font-size:8px; color:var(--accent); margin-left:2px; letter-spacing:.5px; vertical-align:super; }
   .chips { display:flex; flex-wrap:wrap; gap:7px; justify-content:center; }
   .chip { font-size:12px; padding:7px 10px; border-radius:18px; background:#262c4a; border:1px solid var(--line); cursor:pointer; }
   .chip.sel { background:var(--accent); border-color:var(--accent); }
@@ -74,7 +76,7 @@
       <button data-i="piano" class="sel">🎹 鋼琴</button>
       <button data-i="guitar">🎸 木吉他</button>
       <button data-i="eguitar">🎸 電吉他</button>
-      <button data-i="orch">🎻 管弦樂</button>
+      <button data-i="orch" class="beta">🎻 管弦樂<sup>beta</sup></button>
     </div>
   </div>
 
@@ -119,7 +121,7 @@
 
   <div class="card">
     <label class="small">音量</label>
-    <input id="vol" type="range" min="0" max="200" value="100" style="width:100%; margin-bottom:10px">
+    <input id="vol" type="range" min="0" max="100" value="75" style="width:100%; margin-bottom:10px">
     <label class="small">殘響（空間感）</label>
     <input id="rev" type="range" min="0" max="100" value="32" style="width:100%; margin-bottom:14px">
     <div class="row" id="quizRow">
@@ -133,7 +135,7 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    <b>版本 v35</b>
+    <b>版本 v37</b>
   </div>
 
 <script>
@@ -149,8 +151,8 @@ const wbuffers={};                   // 木管 (wood/)
 const bbuffers={};                   // 銅管 (brass/)
 let samplesReady=false, loadingSamples=false;
 let guitarPromise=null, eguitarPromise=null, orchPromise=null;
-// 各樂器音量補償(依實測「整合LUFS 聽感響度」拉平；可再依耳朵微調)
-const INSTGAIN={ piano:0.79, guitar:1.00, eguitar:0.52, strings:0.84, wood:0.87, brass:0.78 };
+// 音檔已自行調好音量 → 一律直接播放(unity)，不做每樂器補償
+const INSTGAIN={ piano:1.0, guitar:1.0, eguitar:1.0, strings:1.0, wood:1.0, brass:1.0 };
 const ORCH_INSTS=['strings','wood','brass'];       // 管弦樂固定三樂器
 const ORCH_BUFS={ strings:sbuffers, wood:wbuffers, brass:bbuffers, piano:buffers, guitar:gbuffers, eguitar:egbuffers };
 const SAMPLE_LO=29, SAMPLE_HI=96;    // 和弦生成範圍 F1~C7
@@ -166,13 +168,12 @@ function makeReverb(){
 function initAudio(){
   if(ctx) return;
   ctx=new (window.AudioContext||window.webkitAudioContext)();
-  comp=ctx.createDynamicsCompressor();          // 末端限幅：可大幅放大又不破音
-  comp.threshold.value=-2; comp.knee.value=0; comp.ratio.value=20; comp.attack.value=0.002; comp.release.value=0.12;
+  comp=ctx.createDynamicsCompressor();          // 只在頂端防爆的 limiter（透明，平常不作用）
+  comp.threshold.value=-0.5; comp.knee.value=0; comp.ratio.value=20; comp.attack.value=0.003; comp.release.value=0.1;
   comp.connect(ctx.destination);
-  const makeup=ctx.createGain(); makeup.gain.value=2.8; makeup.connect(comp);   // 增益放大
-  master=ctx.createGain(); master.gain.value=userVolume; master.connect(makeup);
+  master=ctx.createGain(); master.gain.value=userVolume; master.connect(comp);   // 直接送 limiter，不額外放大（音檔照原音量播）
   reverb=makeReverb(); reverbGain=ctx.createGain(); reverbGain.gain.value=userReverb;
-  master.connect(reverb); reverb.connect(reverbGain); reverbGain.connect(makeup);
+  master.connect(reverb); reverb.connect(reverbGain); reverbGain.connect(comp);
 }
 function loadSamples(onProgress){
   initAudio();
@@ -216,6 +217,17 @@ function loadOrch(){ if(!orchPromise) orchPromise=Promise.all([
   loadOrchSet('strings',sbuffers), loadOrchSet('wood',wbuffers), loadOrchSet('brass',bbuffers)
 ]); return orchPromise; }
 function nearestG(midi, bufs){ let best=null,bd=1e9; for(const k in bufs){ const d=Math.abs(+k-midi); if(d<bd){bd=d;best=+k;} } return best; }
+let activeVoices=[];                                     // 目前正在響的音(供「下一題/重聽」立即切斷)
+function stopAllVoices(){                                // 快速淡出並停止上一個和弦
+  if(!ctx) return;
+  const t=ctx.currentTime, voices=activeVoices; activeVoices=[];
+  voices.forEach(({src,g})=>{ try{
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(g.gain.value, t);
+    g.gain.linearRampToValueAtTime(0.0001, t+0.03);      // 30ms 淡出防爆音
+    src.stop(t+0.05);
+  }catch(e){} });
+}
 function playNote(midi, when, dur, inst){
   inst = inst || instrument;
   const bufs = ORCH_BUFS[inst] || buffers;
@@ -225,12 +237,13 @@ function playNote(midi, when, dur, inst){
   if(!buf) return;
   const t=ctx.currentTime+when;
   const src=ctx.createBufferSource(); src.buffer=buf; src.playbackRate.value=rate;
-  const peak=0.85*(INSTGAIN[inst]||1);                 // 音量補償(依LUFS拉平)
+  const peak=(INSTGAIN[inst]||1);                      // 直接照音檔原音量(unity)
   const g=ctx.createGain();
   g.gain.setValueAtTime(0.0001,t);
   g.gain.linearRampToValueAtTime(peak,t+0.004);        // 4ms 起音防爆音(不動尾巴)
   src.connect(g); g.connect(master);
-  src.onended=()=>{ try{ src.disconnect(); g.disconnect(); }catch(e){} };
+  const voice={src,g}; activeVoices.push(voice);
+  src.onended=()=>{ try{ src.disconnect(); g.disconnect(); }catch(e){} const i=activeVoices.indexOf(voice); if(i>=0) activeVoices.splice(i,1); };
   src.start(t);                                         // 取樣自然衰減播到底
 }
 // 管弦樂配器：每音指派一樂器，保證弦/木管/銅管三種都出現，多的音隨機指派(可重複)
@@ -250,6 +263,7 @@ function orchestrate(s){
 }
 function playChord(midis, style){
   if(ctx&&ctx.state==='suspended') ctx.resume();
+  stopAllVoices();                                // 先切斷上一個和弦(下一題/重聽時立即靜音)
   const s=[...midis].sort((a,b)=>a-b);
   if(instrument==='orch'){                        // 管弦樂：三樂器齊奏(持續音)
     const parts=orchestrate(s);
@@ -752,7 +766,7 @@ function setInstrument(inst){
   fb.textContent = appMode==='quiz' ? '選好和弦，按「新題目」開始' : '點下方任一和弦即可聆聽（可先選根音）';
   saveSettings();
 }
-document.getElementById('vol').oninput=(e)=>{ userVolume=e.target.value/100; if(master) master.gain.value=userVolume; saveSettings(); };
+document.getElementById('vol').oninput=(e)=>{ userVolume=e.target.value/75; if(master) master.gain.value=userVolume; saveSettings(); };  // 75格=unity(原音量)
 document.getElementById('rev').oninput=(e)=>{ userReverb=e.target.value/100*0.5; if(reverbGain) reverbGain.gain.value=userReverb; saveSettings(); };
 // 練習根音選擇（隨機 + C~B）
 const rootRow=document.getElementById('rootRow');
@@ -864,7 +878,7 @@ document.getElementById('newBtn').onclick=async ()=>{
 document.getElementById('replayBtn').onclick=()=>{ if(currentQ) playChord(currentQ.notes, playStyle); };
 // 套用已儲存的設定到畫面（下次開啟＝上次關閉的狀態）
 document.querySelectorAll('#playmode button').forEach(b=>b.classList.toggle('sel', b.dataset.p===playStyle));
-document.getElementById('vol').value = Math.round(userVolume*100);
+document.getElementById('vol').value = Math.round(userVolume*75);   // 75格=unity(userVolume 1.0)
 document.getElementById('rev').value = Math.round(userReverb/0.5*100);
 setInstrument(instrument);
 setAppMode(appMode);
