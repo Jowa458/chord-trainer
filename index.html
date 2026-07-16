@@ -104,8 +104,10 @@
       <button data-p="block">柱狀</button>
     </div>
     <div style="height:12px"></div>
-    <label class="small">要練習的和弦（測驗用；點標題可收合，點和弦開/關，至少 2 種）</label>
-    <div id="chipSet"></div>
+    <div id="chordSelWrap">
+      <label class="small">要練習的和弦（測驗用；點標題可收合，點和弦開/關，至少 2 種）</label>
+      <div id="chipSet"></div>
+    </div>
     <div id="rootWrap" style="display:none">
       <div style="height:12px"></div>
       <label class="small">練習根音</label>
@@ -121,7 +123,7 @@
 
   <div class="card">
     <label class="small">音量</label>
-    <input id="vol" type="range" min="0" max="100" value="75" style="width:100%; margin-bottom:10px">
+    <input id="vol" type="range" min="0" max="100" value="60" style="width:100%; margin-bottom:10px">
     <label class="small">殘響（空間感）</label>
     <input id="rev" type="range" min="0" max="100" value="32" style="width:100%; margin-bottom:14px">
     <div class="row" id="quizRow">
@@ -135,7 +137,7 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    <b>版本 v37</b>
+    <b>版本 v38</b>
   </div>
 
 <script>
@@ -766,7 +768,7 @@ function setInstrument(inst){
   fb.textContent = appMode==='quiz' ? '選好和弦，按「新題目」開始' : '點下方任一和弦即可聆聽（可先選根音）';
   saveSettings();
 }
-document.getElementById('vol').oninput=(e)=>{ userVolume=e.target.value/75; if(master) master.gain.value=userVolume; saveSettings(); };  // 75格=unity(原音量)
+document.getElementById('vol').oninput=(e)=>{ userVolume=e.target.value/60; if(master) master.gain.value=userVolume; saveSettings(); };  // 60格=unity(原音量)
 document.getElementById('rev').oninput=(e)=>{ userReverb=e.target.value/100*0.5; if(reverbGain) reverbGain.gain.value=userReverb; saveSettings(); };
 // 練習根音選擇（隨機 + C~B）
 const rootRow=document.getElementById('rootRow');
@@ -803,9 +805,10 @@ function setAppMode(m){
   document.querySelectorAll('#apptab button').forEach(x=>x.classList.toggle('sel', x.dataset.a===m));
   document.getElementById('scoreCard').style.display = m==='quiz'?'':'none';
   document.getElementById('quizRow').style.display   = m==='quiz'?'':'none';
+  document.getElementById('chordSelWrap').style.display = m==='quiz'?'':'none';  // 聆聽模式不需勾選,直接列全部
   document.getElementById('rootWrap').style.display  = m==='practice'?'':'none';
   document.getElementById('feedback').textContent = m==='quiz'
-    ? '選好和弦，按「新題目」開始' : '點下方任一和弦即可聆聽（可先選根音）';
+    ? '選好和弦，按「新題目」開始' : '點任一和弦即可聆聽（可先選根音）';
   drawStaff(null); renderAnswers(); saveSettings();
 }
 async function playPractice(q){
@@ -835,7 +838,7 @@ function newQuestion(){
 function renderAnswers(){
   const el=document.getElementById('answers'); el.innerHTML='';
   if(appMode==='practice'){
-    enabledQualities().forEach(q=>{
+    QUALITIES.forEach(q=>{                          // 聆聽模式：直接列出全部和弦，不受測驗勾選限制
       const b=document.createElement('button'); b.textContent=q.label;
       const ok=chordAvailable(q, practiceRoot);
       if(ok){ b.onclick=()=>playPractice(q); }
@@ -878,7 +881,7 @@ document.getElementById('newBtn').onclick=async ()=>{
 document.getElementById('replayBtn').onclick=()=>{ if(currentQ) playChord(currentQ.notes, playStyle); };
 // 套用已儲存的設定到畫面（下次開啟＝上次關閉的狀態）
 document.querySelectorAll('#playmode button').forEach(b=>b.classList.toggle('sel', b.dataset.p===playStyle));
-document.getElementById('vol').value = Math.round(userVolume*75);   // 75格=unity(userVolume 1.0)
+document.getElementById('vol').value = Math.round(userVolume*60);   // 60格=unity(userVolume 1.0)
 document.getElementById('rev').value = Math.round(userReverb/0.5*100);
 setInstrument(instrument);
 setAppMode(appMode);
