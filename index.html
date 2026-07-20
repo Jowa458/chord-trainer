@@ -57,6 +57,7 @@
   .answers button { font-size:13px; padding:11px 6px; }
   .answers button.correct { background:var(--ok); border-color:var(--ok); color:#04180f; }
   .answers button.wrong { background:var(--bad); border-color:var(--bad); }
+  .answers button.refplay::after { content:'▶'; font-size:9px; opacity:.55; margin-left:5px; }
   .feedback { text-align:center; min-height:24px; font-size:15px; font-weight:600; }
   .legend { display:flex; gap:12px 16px; flex-wrap:wrap; justify-content:center; font-size:12px; color:var(--text); margin-top:10px; }
   .dot { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:middle; margin-right:4px; }
@@ -146,7 +147,7 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    <b>版本 v41</b>
+    <b>版本 v42</b>
   </div>
 
 <script>
@@ -273,6 +274,18 @@ function orchestrate(s){
   for(let i=0;i<n;i++) out.push({m:s[i], inst:shuffled[i]});
   for(let i=n;i<3;i++) out.push({m:s[randInt(n)], inst:shuffled[i]});
   return out;
+}
+// 參考試聽：把題目的實際排列(refNotes)每個音「最少移動」到目標和弦 q 的最近和弦音(同根音)，
+// 位置/音域與題目一致，只有音質改變 → 方便直接比較各選項。
+function voiceLead(refNotes, rootPc, q){
+  const pcs=new Set(q.tones.map(t=>(((rootPc+t[0])%12)+12)%12));
+  return refNotes.map(m=>{
+    for(let d=0; d<=6; d++){
+      if(pcs.has((((m-d)%12)+12)%12)) return m-d;
+      if(pcs.has((((m+d)%12)+12)%12)) return m+d;
+    }
+    return m;
+  });
 }
 async function playChord(midis, style){
   if(ctx && ctx.state==='suspended'){ try{ await ctx.resume(); }catch(e){} }  // 等 context 真正喚醒再排程,否則音符會擠在一起同時爆發→破音
@@ -898,7 +911,7 @@ function renderAnswers(){
     });
   } else {
     enabledQualities().forEach(q=>{
-      const b=document.createElement('button'); b.textContent=q.label;
+      const b=document.createElement('button'); b.textContent=q.label; b._q=q;
       b.onclick=()=>answer(q.key,b); if(answered) b.disabled=true;
       el.appendChild(b);
     });
@@ -909,7 +922,11 @@ function answer(key, btn){
   answered=true; stats.total++;
   const correct = key===currentQ.q.key;
   document.querySelectorAll('.answers button').forEach(b=>{
-    b.disabled=true; if(b.textContent===currentQ.q.label) b.classList.add('correct');
+    if(b.textContent===currentQ.q.label) b.classList.add('correct');
+    b.disabled=false; b.classList.add('refplay');           // 變成「同位置試聽」鈕
+    b.title='▶ 試聽此和弦（與題目相同位置，方便比較）';
+    const q=b._q;
+    b.onclick=()=>{ if(q&&currentQ) playChord(voiceLead(currentQ.notes, currentQ.rootPc, q), playStyle); };
   });
   const rootName=NAMES[currentQ.rootPc];
   const noteStr=[...currentQ.notes].sort((a,b)=>a-b).map(noteName).join(' · ');
@@ -920,6 +937,7 @@ function answer(key, btn){
     document.getElementById('feedback').innerHTML='❌ 正解：'+tag;
   }
   drawStaff(currentQ);
+  document.getElementById('feedback').innerHTML += '<br><span style="color:var(--muted);font-size:12px">👆 點任一選項可用「相同位置」試聽比較</span>';
   document.getElementById('right').textContent=stats.right;
   document.getElementById('total').textContent=stats.total;
   document.getElementById('streak').textContent=stats.streak;
