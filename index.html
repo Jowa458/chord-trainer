@@ -147,7 +147,7 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    <b>版本 v42</b>
+    <b>版本 v43</b>
   </div>
 
 <script>
@@ -286,6 +286,22 @@ function voiceLead(refNotes, rootPc, q){
     }
     return m;
   });
+}
+// 依目前樂器，為選項 q 產生「與題目相同位置」的參考排列(供公布答案後試聽比較)
+function refVoicing(q){
+  if(!currentQ) return null;
+  if(instrument==='guitar'||instrument==='eguitar'){
+    // 吉他：必須是真實可彈指型 → 從候選指型挑「最接近題目位置」的(優先保留最低音把位)，才畫得出 tab
+    const cands=guitarCands(currentQ.rootPc, q); if(!cands.length) return null;
+    const ref=currentQ.notes, refLo=Math.min(...ref), refHi=Math.max(...ref), refC=ref.reduce((a,b)=>a+b,0)/ref.length;
+    let best=null, bs=1e9;
+    cands.forEach(c=>{ const lo=Math.min(...c.notes), hi=Math.max(...c.notes), ce=c.notes.reduce((a,b)=>a+b,0)/c.notes.length;
+      const sc=2*Math.abs(lo-refLo)+Math.abs(hi-refHi)+Math.abs(ce-refC);   // 最低音把位權重最高
+      if(sc<bs){ bs=sc; best=c; } });
+    best.q=q; return best;
+  }
+  // 鋼琴/管弦樂：自由 voice-leading(每音移到最近的目標和弦音)
+  return { notes:voiceLead(currentQ.notes, currentQ.rootPc, q), rootPc:currentQ.rootPc, q, type:'參考位置' };
 }
 async function playChord(midis, style){
   if(ctx && ctx.state==='suspended'){ try{ await ctx.resume(); }catch(e){} }  // 等 context 真正喚醒再排程,否則音符會擠在一起同時爆發→破音
@@ -926,7 +942,7 @@ function answer(key, btn){
     b.disabled=false; b.classList.add('refplay');           // 變成「同位置試聽」鈕
     b.title='▶ 試聽此和弦（與題目相同位置，方便比較）';
     const q=b._q;
-    b.onclick=()=>{ if(q&&currentQ) playChord(voiceLead(currentQ.notes, currentQ.rootPc, q), playStyle); };
+    b.onclick=()=>{ if(!q||!currentQ) return; const rv=refVoicing(q); if(!rv) return; drawStaff(rv); playChord(rv.notes, playStyle); };  // 譜/tab 跟著切到該選項
   });
   const rootName=NAMES[currentQ.rootPc];
   const noteStr=[...currentQ.notes].sort((a,b)=>a-b).map(noteName).join(' · ');
