@@ -147,7 +147,7 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    <b>版本 v43</b>
+    <b>版本 v44</b>
   </div>
 
 <script>
@@ -278,14 +278,20 @@ function orchestrate(s){
 // 參考試聽：把題目的實際排列(refNotes)每個音「最少移動」到目標和弦 q 的最近和弦音(同根音)，
 // 位置/音域與題目一致，只有音質改變 → 方便直接比較各選項。
 function voiceLead(refNotes, rootPc, q){
-  const pcs=new Set(q.tones.map(t=>(((rootPc+t[0])%12)+12)%12));
-  return refNotes.map(m=>{
-    for(let d=0; d<=6; d++){
-      if(pcs.has((((m-d)%12)+12)%12)) return m-d;
-      if(pcs.has((((m+d)%12)+12)%12)) return m+d;
-    }
-    return m;
+  const targetPCs=q.tones.map(t=>(((rootPc+t[0])%12)+12)%12);
+  const pcs=new Set(targetPCs);
+  const near=m=>{ for(let d=0;d<=6;d++){ if(pcs.has((((m-d)%12)+12)%12)) return m-d; if(pcs.has((((m+d)%12)+12)%12)) return m+d; } return m; };
+  const out=refNotes.map(near);
+  // 目標和弦音比題目多時(如 三和弦→七和弦)，補上缺少的和弦音，放在音域中央附近，才是完整的目標和弦
+  const present=new Set(out.map(x=>(((x%12)+12)%12)));
+  const lo=Math.min(...refNotes), hi=Math.max(...refNotes), center=(lo+hi)/2;
+  targetPCs.forEach(tpc=>{
+    if(present.has(tpc)) return;
+    let best=null,bd=1e9;
+    for(let m=Math.floor(lo)-12; m<=Math.ceil(hi)+12; m++){ if((((m%12)+12)%12)===tpc){ const d=Math.abs(m-center); if(d<bd){bd=d;best=m;} } }
+    out.push(best!=null?best:Math.round(center)); present.add(tpc);
   });
+  return out.sort((a,b)=>a-b);
 }
 // 依目前樂器，為選項 q 產生「與題目相同位置」的參考排列(供公布答案後試聽比較)
 function refVoicing(q){
