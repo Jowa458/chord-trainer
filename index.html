@@ -147,7 +147,7 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    <b>版本 v44</b>
+    <b>版本 v45</b>
   </div>
 
 <script>
@@ -861,7 +861,7 @@ const rootRow=document.getElementById('rootRow');
 [{t:'隨機',v:-1}].concat(NAMES.map((n,i)=>({t:n,v:i}))).forEach(o=>{
   const c=document.createElement('div');
   c.className='chip'+(o.v===practiceRoot?' sel':''); c.textContent=o.t;
-  c.onclick=()=>{ practiceRoot=o.v; rootRow.querySelectorAll('.chip').forEach(x=>x.classList.remove('sel')); c.classList.add('sel'); saveSettings(); if(appMode==='practice') renderAnswers(); };
+  c.onclick=()=>{ practiceRoot=o.v; currentQ=null; rootRow.querySelectorAll('.chip').forEach(x=>x.classList.remove('sel')); c.classList.add('sel'); saveSettings(); if(appMode==='practice') renderAnswers(); };  // 換根音→下次重生成
   rootRow.appendChild(c);
 });
 
@@ -899,12 +899,17 @@ function setAppMode(m){
 }
 async function playPractice(q){
   if(!(await ensureSamples())) return;
-  const rp = practiceRoot<0 ? randInt(12) : practiceRoot;
-  let v=null; for(let i=0;i<25&&!v;i++) v=generate(rp,q);
-  if(!v){ document.getElementById('feedback').textContent='⚠️ 此和弦在目前設定下無法生成，換個排列方式試試'; return; }
-  currentQ=v; drawStaff(v);
+  let v;
+  if(currentQ && currentQ.q===q){ v=currentQ; }        // 同一個和弦→重複聽「相同」voicing
+  else {                                                // 換和弦(或換根音後)→產生新排列
+    const rp = practiceRoot<0 ? randInt(12) : practiceRoot;
+    v=null; for(let i=0;i<25&&!v;i++) v=generate(rp,q);
+    if(!v){ document.getElementById('feedback').textContent='⚠️ 此和弦在目前設定下無法生成，換個排列方式試試'; return; }
+    currentQ=v;
+  }
+  drawStaff(v);
   const noteStr=[...v.notes].sort((a,b)=>a-b).map(noteName).join(' · ');
-  document.getElementById('feedback').innerHTML=`🎹 ${NAMES[v.rootPc]} ${q.label} · <span style="color:var(--muted)">${v.type}</span><br><span style="color:var(--muted);font-size:13px">${noteStr}</span>`;
+  document.getElementById('feedback').innerHTML=`🎹 ${NAMES[v.rootPc]} ${q.label} · <span style="color:var(--muted)">${v.type}</span><br><span style="color:var(--muted);font-size:13px">${noteStr}</span><br><span style="color:var(--muted);font-size:11px">再按一次＝重複聽；換別的和弦再點回來＝換排列</span>`;
   playChord(v.notes, playStyle);
 }
 
