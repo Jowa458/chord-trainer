@@ -147,12 +147,12 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    <b>版本 v45</b>
+    <b>版本 v53</b>
   </div>
 
 <script>
 /* ================= 音源：真鋼琴取樣（aac/*.m4a） ================= */
-let ctx, master, reverb, reverbGain, comp;
+let ctx, master, reverb, reverbGain, comp, shaper;
 let userVolume=1.0;                  // 由音量滑桿控制
 let userReverb=0.16;                 // 由殘響滑桿控制 (0~0.5)
 let userBass=0;                      // 最低音(bass)加成 dB (0~12)
@@ -170,7 +170,14 @@ const ORCH_INSTS=['strings','wood','brass'];       // 管弦樂固定三樂器
 const ORCH_BUFS={ strings:sbuffers, wood:wbuffers, brass:bbuffers, piano:buffers, guitar:gbuffers, eguitar:egbuffers };
 const SAMPLE_LO=29, SAMPLE_HI=96;    // 和弦生成範圍 F1~C7
 const NOTE_NAMES=['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B']; // 檔名用 s 代替 # (避免主機對 # 出錯)
-const sampleFile = m => NOTE_NAMES[((m%12)+12)%12] + (Math.floor(m/12)-1) + '.m4a';
+const sampleFile = m => NOTE_NAMES[((m%12)+12)%12] + (Math.floor(m/12)-1) + '.mp3';   // 鋼琴：MP3 CBR 320k(強制位元率,起音乾淨)
+// 瞬時軟削波曲線：|x|<=0.7 完全不動(透明)，超過才平滑壓向 ~0.93；輸入超過±1也被圓滑擋住 → 防起音暫態爆音
+function makeSoftClip(){
+  const n=2048, c=new Float32Array(n), t=0.7;
+  for(let i=0;i<n;i++){ const x=(i/(n-1))*2-1, a=Math.abs(x), s=x<0?-1:1;
+    c[i]= a<=t ? x : s*(t+(1-t)*Math.tanh((a-t)/(1-t))); }
+  return c;
+}
 function makeReverb(){
   const conv=ctx.createConvolver(), len=Math.floor(ctx.sampleRate*1.6);
   const buf=ctx.createBuffer(2,len,ctx.sampleRate);
@@ -181,9 +188,10 @@ function makeReverb(){
 function initAudio(){
   if(ctx) return;
   ctx=new (window.AudioContext||window.webkitAudioContext)();
-  comp=ctx.createDynamicsCompressor();          // 只在頂端防爆的 limiter（透明，平常不作用）
-  comp.threshold.value=-0.5; comp.knee.value=0; comp.ratio.value=20; comp.attack.value=0.003; comp.release.value=0.1;
-  comp.connect(ctx.destination);
+  comp=ctx.createDynamicsCompressor();          // 頂端 limiter（緩解持續大聲）
+  comp.threshold.value=-1.0; comp.knee.value=0; comp.ratio.value=20; comp.attack.value=0.002; comp.release.value=0.1;
+  shaper=ctx.createWaveShaper(); shaper.curve=makeSoftClip(); shaper.oversample='4x';  // 瞬時軟削波:即時擋住起音暫態尖峰(無延遲),正常音量透明
+  comp.connect(shaper); shaper.connect(ctx.destination);
   master=ctx.createGain(); master.gain.value=userVolume; master.connect(comp);   // 直接送 limiter，不額外放大（音檔照原音量播）
   reverb=makeReverb(); reverbGain=ctx.createGain(); reverbGain.gain.value=userReverb;
   master.connect(reverb); reverb.connect(reverbGain); reverbGain.connect(comp);
@@ -202,12 +210,12 @@ function loadSamples(onProgress){
   )).then(()=>{ samplesReady=true; return Object.keys(buffers).length; });
 }
 // 本機吉他取樣（guitar/=木吉他, eguitar/=電吉他；E2~C6，命名同鋼琴慣例；讀不到自動退回鋼琴）
-const gFile=m=>NOTE_NAMES[((m%12)+12)%12]+(Math.floor(m/12)-1)+'.m4a';
+const gFile=(m,ext)=>NOTE_NAMES[((m%12)+12)%12]+(Math.floor(m/12)-1)+(ext||'.m4a');
 function loadGuitarSet(folder, bufs){
   initAudio();
   const list=[]; for(let m=40;m<=84;m++) list.push(m);   // E2 ~ C6
   return Promise.all(list.map(m=>
-    fetch(folder+'/'+gFile(m))
+    fetch(folder+'/'+gFile(m,'.mp3'))                    // 吉他：MP3 CBR 256k(管弦樂仍用 .m4a)
       .then(r=>{ if(!r.ok) throw 0; return r.arrayBuffer(); })
       .then(a=>new Promise((res,rej)=>ctx.decodeAudioData(a,res,rej)))
       .then(b=>{ bufs[m]=b; }).catch(()=>{})
@@ -306,8 +314,8 @@ function refVoicing(q){
       if(sc<bs){ bs=sc; best=c; } });
     best.q=q; return best;
   }
-  // 鋼琴/管弦樂：自由 voice-leading(每音移到最近的目標和弦音)
-  return { notes:voiceLead(currentQ.notes, currentQ.rootPc, q), rootPc:currentQ.rootPc, q, type:'參考位置' };
+  // 鋼琴/管弦樂：自由 voice-leading(每音移到最近的目標和弦音)；三和弦同樣補根音
+  return doubleRootIfTriad({ notes:voiceLead(currentQ.notes, currentQ.rootPc, q), rootPc:currentQ.rootPc, q, type:'參考位置' });
 }
 async function playChord(midis, style){
   if(ctx && ctx.state==='suspended'){ try{ await ctx.resume(); }catch(e){} }  // 等 context 真正喚醒再排程,否則音符會擠在一起同時爆發→破音
@@ -554,6 +562,18 @@ function weightOf(v){                 // 輕度偏向「常彈」：中音域 + 
   else if(t.includes('Shell')) w*=0.9;
   return w;
 }
+function nextRootAbove(m, rootPc){ let d=(((rootPc-(m%12))%12)+12)%12; if(d===0) d=12; return m+d; }
+// 鋼琴/管弦樂的三和弦(3音) → 補一個根音成為四音(重複根音)；吉他不動
+function doubleRootIfTriad(v){
+  if(instrument==='guitar'||instrument==='eguitar') return v;
+  if(!v||!v.notes||v.notes.length!==3) return v;
+  const s=[...v.notes].sort((a,b)=>a-b);
+  const roots=s.filter(m=>pc(m)===v.rootPc), lowRoot=roots.length?roots[0]:s[0];
+  for(const c of [lowRoot+12, nextRootAbove(s[s.length-1], v.rootPc), lowRoot-12]){
+    if(c>=RANGE_LO && c<=RANGE_HI && !s.includes(c)){ v.notes=[...s,c].sort((a,b)=>a-b); break; }
+  }
+  return v;
+}
 function generate(rootPc, q){
   const pool=poolFor(rootPc,q);
   if(!pool.length) return null;
@@ -563,7 +583,7 @@ function generate(rootPc, q){
     const ws=pool.map(weightOf), tot=ws.reduce((a,b)=>a+b,0);
     let r=Math.random()*tot, i=0; while(i<pool.length-1 && (r-=ws[i])>0) i++; v=pool[i];
   }
-  v.q=q; return v;
+  v.q=q; return doubleRootIfTriad(v);
 }
 
 /* ================= 吉他：指板引擎（真實可彈的和弦形狀） ================= */

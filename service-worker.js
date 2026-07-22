@@ -1,5 +1,5 @@
 /* 和弦聽力訓練 Service Worker — 離線快取 */
-const CACHE = 'chord-trainer-v45';
+const CACHE = 'chord-trainer-v53';
 
 // 安裝時預先快取「應用外殼」。音檔（aac/*.m4a）與 VexFlow 於執行時第一次載入後自動快取。
 const PRECACHE = [
