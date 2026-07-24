@@ -147,7 +147,7 @@
   </div>
 
   <div class="sub" style="max-width:620px">
-    <b>版本 v54</b>
+    <b>版本 v55</b>
   </div>
 
 <script>
@@ -300,15 +300,25 @@ function orchestrate(s){
 function voiceLead(refNotes, rootPc, q){
   const targetPCs=q.tones.map(t=>(((rootPc+t[0])%12)+12)%12);
   const pcs=new Set(targetPCs);
-  const near=m=>{ for(let d=0;d<=6;d++){ if(pcs.has((((m-d)%12)+12)%12)) return m-d; if(pcs.has((((m+d)%12)+12)%12)) return m+d; } return m; };
-  const out=refNotes.map(near);
-  // 目標和弦音比題目多時(如 三和弦→七和弦)，補上缺少的和弦音，放在音域中央附近，才是完整的目標和弦
-  const present=new Set(out.map(x=>(((x%12)+12)%12)));
-  const lo=Math.min(...refNotes), hi=Math.max(...refNotes), center=(lo+hi)/2;
+  const pcOf=m=>(((m%12)+12)%12);
+  const src=[...refNotes].sort((a,b)=>a-b);
+  const out=[];
+  for(const m of src){                                   // 每音移到最近的目標和弦音，且避開已占用音高(防止兩顆疊在同一位置)
+    let placed=null;
+    for(let d=0; d<=12 && placed===null; d++){
+      if(pcs.has(pcOf(m-d)) && !out.includes(m-d)) placed=m-d;
+      else if(d>0 && pcs.has(pcOf(m+d)) && !out.includes(m+d)) placed=m+d;
+    }
+    if(placed===null){ for(let d=0; d<=6 && placed===null; d++){ if(pcs.has(pcOf(m-d))) placed=m-d; else if(pcs.has(pcOf(m+d))) placed=m+d; } }
+    out.push(placed==null?m:placed);
+  }
+  // 目標和弦音比題目多時(如 三和弦→七和弦)，補上缺少的和弦音，放音域中央附近，同樣避開重複
+  const present=new Set(out.map(pcOf));
+  const lo=Math.min(...src), hi=Math.max(...src), center=(lo+hi)/2;
   targetPCs.forEach(tpc=>{
     if(present.has(tpc)) return;
     let best=null,bd=1e9;
-    for(let m=Math.floor(lo)-12; m<=Math.ceil(hi)+12; m++){ if((((m%12)+12)%12)===tpc){ const d=Math.abs(m-center); if(d<bd){bd=d;best=m;} } }
+    for(let m=Math.floor(lo)-12; m<=Math.ceil(hi)+12; m++){ if(pcOf(m)===tpc && !out.includes(m)){ const d=Math.abs(m-center); if(d<bd){bd=d;best=m;} } }
     out.push(best!=null?best:Math.round(center)); present.add(tpc);
   });
   return out.sort((a,b)=>a-b);
